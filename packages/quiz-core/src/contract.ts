@@ -70,7 +70,18 @@ export const questionViewSchema = z.object({
 export type QuestionView = z.infer<typeof questionViewSchema>
 
 export const questionResponseSchema = z.union([
-  z.object({ status: z.literal('question'), question: questionViewSchema }),
+  z.object({
+    status: z.literal('question'),
+    question: questionViewSchema,
+    /**
+     * このリクエストをサーバ内部で処理するのにかかった時間（ミリ秒）。
+     *
+     * クライアントは往復時間からこれを引いて**ネットワーク分だけ**を残り時間から差し引く。
+     * 引かないと、出題を確定する前（`served_at` を作る前）のサーバ処理時間まで
+     * 回答時間から削ってしまう。
+     */
+    serverProcessingMs: z.number().nonnegative(),
+  }),
   z.object({ status: z.literal('finished') }),
 ])
 export type QuestionResponse = z.infer<typeof questionResponseSchema>

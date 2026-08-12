@@ -48,10 +48,11 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
     }
 
     // 🔒 **転送にかかった時間を期限に足さない**（prd/04 §5）。
-    // `remainingMs` はサーバがレスポンスを作った時点の値なので、受信までの往復分を引く。
-    // 往復全部を引くのは保守的（実際より少し短く出る）だが、
-    // **表示が残っているのにサーバでは期限切れ**という取り違えを防ぐ側に倒す。
-    const transferMs = performance.now() - requestedAt
+    // `remainingMs` はサーバがレスポンスを作った時点の値なので、受信までの分を引く。
+    // ⚠ ただし**サーバ内部の処理時間まで引かない**——出題を確定する前の時間を
+    // 回答時間から削ってしまう。往復からサーバの処理時間を除いた**ネットワーク分**だけを引く。
+    const roundTripMs = performance.now() - requestedAt
+    const transferMs = Math.max(0, roundTripMs - (body.serverProcessingMs ?? 0))
     const question: QuestionView = {
       ...body.question,
       remainingMs: Math.max(0, body.question.remainingMs - transferMs),

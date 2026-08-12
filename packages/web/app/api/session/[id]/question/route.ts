@@ -11,11 +11,19 @@ export const dynamic = 'force-dynamic'
  * **正解 / 両形式のバイト数 / png・jpeg の URL / 難易度の数値 / 得点の重みを含めない。**
  */
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  // 単調時計で自分の処理時間を測る。クライアントが往復時間から差し引くために返す
+  const startedAt = performance.now()
+
   const { id } = await context.params
   const row = await authenticateSession(id)
   if (!row) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
   const view = await serveNextQuestion(row)
   if (!view) return NextResponse.json({ status: 'finished' })
-  return NextResponse.json({ status: 'question', question: view })
+
+  return NextResponse.json({
+    status: 'question',
+    question: view,
+    serverProcessingMs: performance.now() - startedAt,
+  })
 }
