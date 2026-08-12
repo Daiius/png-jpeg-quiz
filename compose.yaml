@@ -50,11 +50,24 @@ services:
           ignore:
             - node_modules/
             - .next/
-        # 依存が変わったらイメージを作り直す
+            # マニフェストは下の rebuild が拾う（sync だけだと node_modules と食い違う）
+            - '*/package.json'
+        # 依存・スクリプトが変わったらイメージを作り直す。
+        # ⚠ watch の path に glob は使えないので、マニフェストは 1 つずつ挙げる
         - action: rebuild
           path: ./pnpm-lock.yaml
         - action: rebuild
           path: ./pnpm-workspace.yaml
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./packages/quiz-core/package.json
+        - action: rebuild
+          path: ./packages/database/package.json
+        - action: rebuild
+          path: ./packages/pipeline/package.json
+        - action: rebuild
+          path: ./packages/web/package.json
 
 volumes:
   db-data:
