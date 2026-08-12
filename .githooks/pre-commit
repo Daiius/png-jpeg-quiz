@@ -1,0 +1,11 @@
+#!/bin/sh
+# ステージされた変更に Biome をかける。落ちたらコミットしない。
+# 有効化: pnpm hooks:install（= git config core.hooksPath .githooks）
+set -e
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "pre-commit: pnpm が無いので Biome をとばした" >&2
+  exit 0
+fi
+
+pnpm exec biome check --staged --no-errors-on-unmatched

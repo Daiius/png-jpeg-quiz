@@ -1,0 +1,22 @@
+# 開発用。docker compose watch でソースを同期して Next.js の dev サーバを回す。
+# 本番用（standalone のマルチステージ）は M4 で足す。
+FROM node:24-bookworm-slim
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+
+WORKDIR /app
+
+# 依存の解決に要るものだけ先に入れてレイヤをキャッシュする
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages/quiz-core/package.json ./packages/quiz-core/
+COPY packages/database/package.json ./packages/database/
+COPY packages/pipeline/package.json ./packages/pipeline/
+COPY packages/web/package.json ./packages/web/
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+
+EXPOSE 3000
+CMD ["pnpm", "--filter", "@png-jpeg-quiz/web", "dev"]

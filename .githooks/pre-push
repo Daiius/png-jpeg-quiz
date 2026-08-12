@@ -1,0 +1,11 @@
+#!/bin/sh
+# push 前に型検査。落ちたら push しない。
+# 有効化: pnpm hooks:install（= git config core.hooksPath .githooks）
+set -e
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "pre-push: pnpm が無いので typecheck をとばした" >&2
+  exit 0
+fi
+
+pnpm typecheck

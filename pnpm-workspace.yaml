@@ -1,0 +1,37 @@
+packages:
+  - packages/*
+
+# 公開直後のバージョンを掴まない（サプライチェーン対策）。単位は分 = 7 日
+minimumReleaseAge: 10080
+
+# 依存の版はここに一本化する。各パッケージでは "catalog:" と書く
+catalog:
+  # --- 共通 ---
+  typescript: 7.0.2
+  zod: 4.4.3
+  '@biomejs/biome': 2.5.7
+  vitest: 4.1.10
+  '@types/node': 26.1.2
+
+  # --- database ---
+  drizzle-orm: 0.45.2
+  drizzle-kit: 0.31.10
+  mysql2: 3.23.2
+
+  # --- web ---
+  next: 16.3.0
+  react: 19.2.8
+  react-dom: 19.2.8
+  '@types/react': 19.2.18
+  '@types/react-dom': 19.2.4
+  tailwindcss: 4.3.3
+  '@tailwindcss/postcss': 4.3.3
+
+  # --- pipeline（オフライン専用。実行時には持ち込まない）---
+  sharp: 0.35.3
+
+# インストール時のスクリプト実行は既定で全部止まる。許すものだけをここに書く
+# （pnpm が新しい候補を見つけたら、値を空にした行を自動で足してくる）
+allowBuilds:
+  # vitest / drizzle-kit が使う。バイナリの配置に postinstall が要る
+  esbuild: true
