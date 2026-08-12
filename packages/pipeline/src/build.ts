@@ -27,7 +27,10 @@ import { loadSources, questionIdFor, type SourceAsset } from './source.ts'
 export interface BuildOptions {
   sourceDir: string
   outDir: string
-  /** M1 は「1 問を通す」ためのスライス。既定は標準プロファイルだけを回す */
+  /**
+   * 🔒 **既定は 20 プロファイルすべて**（prd/05 §3 ステップ 5）。
+   * 絞るのは開発中に手早く回すときだけで、その成果物で `published` にしてはいけない。
+   */
   profileIds?: readonly string[]
   /** 素材を絞る（動作確認用） */
   only?: readonly string[]
@@ -36,6 +39,8 @@ export interface BuildOptions {
 export interface BuildSummary {
   questions: number
   encodings: number
+  /** 20 プロファイルが揃わず draft のままの問題（出題されない） */
+  draft: number
   skipped: { name: string; reason: string }[]
 }
 
@@ -48,7 +53,7 @@ async function buildOne(
   asset: SourceAsset,
   outDir: string,
   profileIds: readonly string[],
-): Promise<{ encodings: number; skipped?: string }> {
+): Promise<{ encodings: number; skipped?: string; status?: 'draft' | 'published' }> {
   const questionId = questionIdFor(asset.contentHash)
   const image = await normalize(asset.bytes, { flatten: asset.meta.preprocess?.flatten })
 
@@ -90,9 +95,7 @@ async function buildOne(
       derivation,
       source: asset.meta.source,
       explanation: asset.meta.explanation ?? null,
-      // TODO(spec): 人手レビュー（prd/05 §3 ステップ 11）を通すまでは draft のはずだが、
-      // M1 では出題まで通すことを優先して published で入れる。レビュー UI は M3 以降。
-      status: 'published',
+      // status は最後に決める（20 プロファイルが揃って初めて published にする）
     })
     .onDuplicateKeyUpdate({
       set: {
@@ -105,7 +108,6 @@ async function buildOne(
         derivation,
         source: asset.meta.source,
         explanation: asset.meta.explanation ?? null,
-        status: 'published',
       },
     })
 
@@ -146,7 +148,19 @@ async function buildOne(
     }
   }
 
-  return { encodings: results.length }
+  // 🔒 **20 プロファイルすべてが揃った問題だけを published にする**（prd/05 §3, §6）。
+  // 揃っていないと正解画面が「他の条件ならどうなるか」を出せない（prd/04 §4）。
+  const encodingCount = await database
+    .select({ profileId: questionEncoding.profileId })
+    .from(questionEncoding)
+    .where(eq(questionEncoding.questionId, questionId))
+
+  // TODO(spec): 本来はここで draft に入れ、人手レビュー（prd/05 §3 ステップ 11）を経て
+  // published にする。レビュー UI は M3 以降なので、当面は揃った時点で published にする。
+  const status = encodingCount.length >= ENCODE_PROFILES.length ? 'published' : 'draft'
+  await database.update(question).set({ status }).where(eq(question.id, questionId))
+
+  return { encodings: results.length, status }
 }
 
 async function writeAsset(outDir: string, objectKey: string, bytes: Buffer): Promise<void> {
@@ -155,8 +169,67 @@ async function writeAsset(outDir: string, objectKey: string, bytes: Buffer): Pro
   await writeFile(target, bytes)
 }
 
+/**
+ * ⚠ **MySQL の JSON カラムはキーの順序を保持しない**（内部でソートして持つ）。
+ * 書いたときの `JSON.stringify` と読んだときの文字列は一致しないので、
+ * **キーを並べ替えてから比べる**。
+ */
+function canonicalJson(value: unknown): string {
+  const entries = Object.entries((value ?? {}) as Record<string, unknown>)
+  entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return JSON.stringify(entries)
+}
+
+/**
+ * 🔒 **エンコーダの版が変わったら、既存プロファイルを黙って上書きしない**（prd/03 §2）。
+ *
+ * 版が変わればバイト数も変わり、**拮抗問題では正解が反転しうる**（prd/01 §3.3）。
+ * それを既存の `profile_id` に上書きすると、過去のセッションが参照した条件の意味が後から変わり、
+ * さらに immutable キャッシュで配った URL の中身と実体が食い違う。
+ *
+ * ここでは**検出して止める**だけにする。新しい版のプロファイル ID を発行して
+ * 旧プロファイルを `retired` にする手順（prd/03 §2）は運用の判断なので、自動ではやらない。
+ */
+async function guardToolVersions(database: Database, profileIds: readonly string[]): Promise<void> {
+  const versions = toolVersions()
+
+  for (const profileId of profileIds) {
+    const rows = await database
+      .select({ toolVersions: encodeProfile.toolVersions })
+      .from(encodeProfile)
+      .where(eq(encodeProfile.id, profileId))
+      .limit(1)
+
+    const stored = rows[0]?.toolVersions
+    if (!stored) {
+      throw new Error(`プロファイルが seed されていない: ${profileId}（pnpm db:seed を先に流す）`)
+    }
+
+    // seed 直後は空。まだ 1 度もエンコードしていないので、ここで記録してよい
+    const isUnrecorded = Object.keys(stored as Record<string, unknown>).length === 0
+    if (isUnrecorded) {
+      await database
+        .update(encodeProfile)
+        .set({ toolVersions: versions })
+        .where(eq(encodeProfile.id, profileId))
+      continue
+    }
+
+    if (canonicalJson(stored) !== canonicalJson(versions)) {
+      throw new Error(
+        [
+          `エンコーダの版が ${profileId} の記録と違う（prd/03 §2）。`,
+          `  記録: ${canonicalJson(stored)}`,
+          `  現在: ${canonicalJson(versions)}`,
+          '既存の答えを上書きしない。新しい版のプロファイル ID を発行し、旧プロファイルを retired にすること。',
+        ].join('\n'),
+      )
+    }
+  }
+}
+
 export async function build(options: BuildOptions): Promise<BuildSummary> {
-  const profileIds = options.profileIds ?? [STANDARD_PROFILE_ID]
+  const profileIds = options.profileIds ?? ENCODE_PROFILES.map((profile) => profile.id)
   const database = getDatabase()
   const sources = await loadSources(options.sourceDir)
   const targets = options.only?.length
@@ -167,16 +240,9 @@ export async function build(options: BuildOptions): Promise<BuildSummary> {
     throw new Error(`素材が 1 つも見つからない: ${options.sourceDir}`)
   }
 
-  // 実際にエンコードしたツール版を記録する（prd/03 §2）
-  const versions = toolVersions()
-  for (const profileId of profileIds) {
-    await database
-      .update(encodeProfile)
-      .set({ toolVersions: versions })
-      .where(eq(encodeProfile.id, profileId))
-  }
+  await guardToolVersions(database, profileIds)
 
-  const summary: BuildSummary = { questions: 0, encodings: 0, skipped: [] }
+  const summary: BuildSummary = { questions: 0, encodings: 0, draft: 0, skipped: [] }
   for (const asset of targets) {
     const result = await buildOne(database, asset, options.outDir, profileIds)
     if (result.skipped) {
@@ -185,7 +251,8 @@ export async function build(options: BuildOptions): Promise<BuildSummary> {
     }
     summary.questions += 1
     summary.encodings += result.encodings
-    console.log(`  ✓ ${asset.name} (${result.encodings} profiles)`)
+    if (result.status === 'draft') summary.draft += 1
+    console.log(`  ✓ ${asset.name} (${result.encodings} profiles, ${result.status})`)
   }
 
   await writeFile(
@@ -195,21 +262,33 @@ export async function build(options: BuildOptions): Promise<BuildSummary> {
   return summary
 }
 
-/** CLI エントリ。`pnpm quiz:build` から呼ばれる */
+/**
+ * CLI エントリ。`pnpm quiz:build` から呼ばれる。
+ *
+ * - 引数なし: **20 プロファイルすべて**（prd/05 §3）
+ * - `--standard-only`: 標準プロファイルだけ。⚠ **開発中に手早く回すためのもの**で、
+ *   この成果物のまま公開してはいけない（正解画面が 20 プロファイルの結果を出せない）
+ * - 素材名を並べるとその素材だけを対象にする
+ */
 export async function main(argv: readonly string[]): Promise<void> {
   const repoRoot = new URL('../../../', import.meta.url).pathname
   const only = argv.filter((arg) => !arg.startsWith('-'))
-  const allProfiles = argv.includes('--all-profiles')
+  const standardOnly = argv.includes('--standard-only')
+
+  if (standardOnly) {
+    console.warn('⚠ --standard-only: 標準プロファイルだけを生成する（公開用のビルドではない）')
+  }
 
   const summary = await build({
     sourceDir: path.join(repoRoot, 'assets/source'),
     outDir: path.join(repoRoot, 'build'),
-    profileIds: allProfiles ? ENCODE_PROFILES.map((p) => p.id) : [STANDARD_PROFILE_ID],
+    ...(standardOnly ? { profileIds: [STANDARD_PROFILE_ID] } : {}),
     only,
   })
 
   console.log(
     `built ${summary.questions} questions / ${summary.encodings} encodings` +
+      (summary.draft ? ` — ⚠ ${summary.draft} 件は 20 プロファイルが揃わず draft` : '') +
       (summary.skipped.length ? ` (skipped ${summary.skipped.length})` : ''),
   )
   for (const skipped of summary.skipped) {
