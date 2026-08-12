@@ -1,6 +1,6 @@
 'use client'
 
-import { STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
+import { STANDARD_30_QUESTION_COUNT, STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import type { ProfileChoice } from '@/profiles.ts'
@@ -48,7 +48,7 @@ export function StartPanel() {
       const response = await fetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'standard-30', profileId: selected }),
+        body: JSON.stringify({ mode, profileId: selected }),
       })
       if (!response.ok) {
         setError(`開始できませんでした（${response.status}）`)
@@ -63,6 +63,13 @@ export function StartPanel() {
 
   const playable = profiles?.filter((profile) => profile.playable) ?? []
   const current = profiles?.find((profile) => profile.id === selected)
+
+  /**
+   * 🔒 **`standard-30` を短くしない**（prd/06 §2）。30 問という前提にランキングが乗っている。
+   * プールが足りない条件では、**別モード**の練習として遊んでもらう。
+   */
+  const shortPool = current !== undefined && current.poolSize < STANDARD_30_QUESTION_COUNT
+  const mode = shortPool ? 'practice' : 'standard-30'
 
   return (
     <div className="flex flex-col gap-4">
@@ -92,6 +99,14 @@ export function StartPanel() {
           </p>
         ) : null}
 
+        {shortPool ? (
+          <p className="text-amber-800 text-xs">
+            ⚠ この条件の問題は {current?.poolSize} 問しかないため、
+            <strong>練習モード（{current?.poolSize} 問）</strong>で始まります。 ランキング用の{' '}
+            {STANDARD_30_QUESTION_COUNT} 問モードは、素材が増えたら選べるようになります。
+          </p>
+        ) : null}
+
         {profiles && playable.length < profiles.length ? (
           <p className="text-slate-500 text-xs">
             ⚠ {profiles.length - playable.length} 条件は、いまの問題プールでは答えが片方に
@@ -112,7 +127,7 @@ export function StartPanel() {
         onClick={() => void start()}
         className="self-start rounded bg-slate-900 px-8 py-4 font-bold text-lg text-white hover:bg-slate-700 disabled:opacity-50"
       >
-        はじめる
+        {shortPool ? '練習をはじめる' : 'はじめる'}
       </button>
       {error ? <p className="text-red-600 text-sm">{error}</p> : null}
     </div>

@@ -78,42 +78,69 @@ export function targetDifficulty(index: number, questionCount: number): number {
   return Math.min(1, Math.max(0, t))
 }
 
+/**
+ * 出題選択の本体。`standard-30` と `practice` で共有する
+ * （違いは**問題数だけ**なので、カーブと重複回避は 1 つに保つ）。
+ */
+function pickByCurve(state: ModeState, pool: readonly PoolEntry[]): PoolEntry | null {
+  if (state.index >= state.questionCount) return null
+
+  const used = new Set(state.usedQuestionIds)
+  // 同一セッション内で同じ問題を二度出さない（prd/01 §4.3）
+  const candidates = pool.filter((entry) => !used.has(entry.questionId))
+  if (candidates.length === 0) return null
+
+  const target = targetDifficulty(state.index, state.questionCount)
+  let best = candidates[0]
+  if (!best) return null
+  let bestDistance = Math.abs(best.difficulty - target)
+
+  for (const candidate of candidates) {
+    const distance = Math.abs(candidate.difficulty - target)
+    // 同距離なら questionId の辞書順で決める（**選択を決定的にする**ため）
+    if (
+      distance < bestDistance ||
+      (distance === bestDistance && candidate.questionId < best.questionId)
+    ) {
+      best = candidate
+      bestDistance = distance
+    }
+  }
+  return best
+}
+
+/**
+ * prd/06 §2 の既定モード。🔒 **30 問固定。**
+ *
+ * 二択 × 10 問では実力差が出ない（実力 80% の人が全問正解する確率が 10.7% で、
+ * 100 人遊べば 10 人が満点になる）。30 問で 0.12%。**ランキングはこの前提に乗っている**ので、
+ * プールが足りないときは**短くせず、そのプロファイルでの開始を断る**。
+ */
 export const standard30: QuizMode = {
   id: 'standard-30',
   allowProfileChoice: true,
+  questionCount(): number {
+    return STANDARD_30_QUESTION_COUNT
+  },
+  pickNext: pickByCurve,
+  score(input) {
+    return scoreQuestion(input)
+  },
+}
 
+/**
+ * 問題プールが 30 問に満たない条件でも遊べるようにする**練習モード**。
+ *
+ * ⚠ **`standard-30` とは別の ID にする。** 問題数が違えば得点の積み上げも変わるので、
+ * 同じランキングに混ぜてはいけない（prd/06 §2）。素材が増えれば出番は無くなる。
+ */
+export const practice: QuizMode = {
+  id: 'practice',
+  allowProfileChoice: true,
   questionCount(poolSize: number): number {
-    // TODO(spec): prd/06 §2 は 30 問固定。プールが足りない間は在庫に合わせる
-    return Math.min(STANDARD_30_QUESTION_COUNT, poolSize)
+    return Math.max(1, Math.min(STANDARD_30_QUESTION_COUNT, poolSize))
   },
-
-  pickNext(state, pool) {
-    if (state.index >= state.questionCount) return null
-
-    const used = new Set(state.usedQuestionIds)
-    // 同一セッション内で同じ問題を二度出さない（prd/01 §4.3）
-    const candidates = pool.filter((entry) => !used.has(entry.questionId))
-    if (candidates.length === 0) return null
-
-    const target = targetDifficulty(state.index, state.questionCount)
-    let best = candidates[0]
-    if (!best) return null
-    let bestDistance = Math.abs(best.difficulty - target)
-
-    for (const candidate of candidates) {
-      const distance = Math.abs(candidate.difficulty - target)
-      // 同距離なら questionId の辞書順で決める（**選択を決定的にする**ため）
-      if (
-        distance < bestDistance ||
-        (distance === bestDistance && candidate.questionId < best.questionId)
-      ) {
-        best = candidate
-        bestDistance = distance
-      }
-    }
-    return best
-  },
-
+  pickNext: pickByCurve,
   score(input) {
     return scoreQuestion(input)
   },
@@ -121,6 +148,7 @@ export const standard30: QuizMode = {
 
 export const MODES: Readonly<Record<string, QuizMode>> = {
   [standard30.id]: standard30,
+  [practice.id]: practice,
 }
 
 export function findMode(id: string): QuizMode | undefined {

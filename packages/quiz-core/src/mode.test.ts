@@ -5,6 +5,7 @@ import {
   MIN_ANSWER_MS,
   type ModeState,
   type PoolEntry,
+  practice,
   QUESTION_TIME_LIMIT_MS,
   standard30,
   targetDifficulty,
@@ -95,12 +96,30 @@ describe('standard30.pickNext', () => {
 })
 
 describe('standard30.questionCount', () => {
-  it('プールが十分なら 30 問（prd/06 §2）', () => {
+  it('🔒 常に 30 問（prd/06 §2）。プールが足りなくても短くしない', () => {
     expect(standard30.questionCount(200)).toBe(30)
+    expect(standard30.questionCount(22)).toBe(30)
+    expect(standard30.questionCount(0)).toBe(30)
+  })
+})
+
+describe('practice', () => {
+  it('プールに合わせて短くする（standard-30 とは別モード）', () => {
+    expect(practice.questionCount(22)).toBe(22)
+    expect(practice.questionCount(200)).toBe(30)
   })
 
-  it('プールが足りなければ在庫に合わせる', () => {
-    expect(standard30.questionCount(22)).toBe(22)
+  it('ID が standard-30 と混ざらない', () => {
+    expect(practice.id).not.toBe(standard30.id)
+    expect(findMode('practice')?.id).toBe('practice')
+  })
+
+  it('出題選択は standard-30 と同じカーブ', () => {
+    const entries = pool(0, 0.5, 1)
+    const state5 = { ...state({ questionCount: 3 }) }
+    expect(practice.pickNext(state5, entries)?.questionId).toBe(
+      standard30.pickNext(state5, entries)?.questionId,
+    )
   })
 })
 

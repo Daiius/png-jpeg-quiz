@@ -45,6 +45,19 @@ export async function POST(request: Request) {
   // 問題数はモードが決める（prd/02 §4-1）
   const questionCount = mode.questionCount(available.length)
 
+  // 🔒 **standard-30 を短くしない**（prd/06 §2）。30 問という前提にランキングが乗っている。
+  // プールが足りないときは短縮せず、そのプロファイルでの開始を断る（practice を使ってもらう）
+  if (questionCount > available.length) {
+    return NextResponse.json(
+      {
+        error: 'not enough questions for this mode',
+        required: questionCount,
+        available: available.length,
+      },
+      { status: 409 },
+    )
+  }
+
   const sessionId = newSessionId()
   const secret = newSessionSecret()
   await database
