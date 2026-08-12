@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { type Database, questionEncodedAsset } from '@png-jpeg-quiz/database'
 import { and, eq } from 'drizzle-orm'
 
@@ -87,7 +87,12 @@ export async function recordEncodedAsset(
  * 出題用アセットのキー（prd/03 §5.1）。
  * こちらは**内容ハッシュ由来でよい**（公開してよいもの）。
  * ⚠ ただし `display` と `encoded` を**同じ階層に置かない**（prd/05 §2）。
+ *
+ * ⚠ **内容ハッシュをそのまま使わない。** `question.id` も内容ハッシュ由来なので、
+ * 素の値を使うと出題時に配る URL から `question_id` が読み取れてしまう。
+ * ドメイン分離した別のダイジェストにして、URL と ID を無関係な文字列にする。
  */
 export function displayObjectKey(contentHash: string): string {
-  return `display/${contentHash.slice(0, 32)}.webp`
+  const digest = createHash('sha256').update(`display:${contentHash}`).digest('hex')
+  return `display/${digest.slice(0, 32)}.webp`
 }
