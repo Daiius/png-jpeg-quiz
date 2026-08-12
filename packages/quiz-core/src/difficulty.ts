@@ -5,8 +5,7 @@
  * 一意に決まるため、難易度経由で答えの方向が漏れる（prd/04 §3.5）。
  */
 
-/** 出題の答え。小さいほうの形式（prd/01 §1） */
-export type Answer = 'png' | 'jpeg'
+import type { Answer } from './contract.ts'
 
 /**
  * `log2(png_bytes / jpeg_bytes)`。

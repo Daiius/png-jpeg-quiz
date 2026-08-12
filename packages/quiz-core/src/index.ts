@@ -5,4 +5,41 @@
  * **DB も HTTP も import しない。** ここが Phase 2 の Vite + Hono 版と共有される本体になる。
  */
 
-export { type Answer, answerFor, log2Ratio, staticDifficulty } from './difficulty.ts'
+export {
+  type Answer,
+  type AnswerResult,
+  answerResultSchema,
+  answerSchema,
+  type CreateSessionRequest,
+  type CreateSessionResponse,
+  createSessionRequestSchema,
+  createSessionResponseSchema,
+  type QuestionCategory,
+  type QuestionResponse,
+  type QuestionView,
+  questionCategorySchema,
+  questionIdSchema,
+  questionResponseSchema,
+  questionViewSchema,
+  type SubmitAnswerRequest,
+  sessionIdSchema,
+  submitAnswerRequestSchema,
+} from './contract.ts'
+export { answerFor, log2Ratio, staticDifficulty } from './difficulty.ts'
+export {
+  buildProfileId,
+  CHROMA_SUBSAMPLINGS,
+  type ChromaSubsampling,
+  ENCODE_PROFILES,
+  type EncodeProfile,
+  findProfile,
+  JPEG_QUALITIES,
+  type JpegQuality,
+  jpegOptionsFor,
+  PREPROCESS,
+  PROFILE_VERSION,
+  type ProfileId,
+  pngOptionsFor,
+  profileIdSchema,
+  STANDARD_PROFILE_ID,
+} from './profile.ts'

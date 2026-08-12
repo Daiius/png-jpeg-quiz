@@ -6,7 +6,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/.next", "!**/node_modules", "!**/build", "!assets"]
+    "includes": [
+      "**",
+      "!**/.next",
+      "!**/node_modules",
+      "!build",
+      "!assets",
+      "!packages/database/migrations"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -17,7 +24,10 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "complexity": {
+        "useLiteralKeys": "off"
+      }
     }
   },
   "javascript": {
