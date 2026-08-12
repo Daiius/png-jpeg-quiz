@@ -23,7 +23,7 @@ pnpm-debug.log*
 !.env.*.example
 
 # ローカル専用のエージェント向けルール/情報（gitignore。存在すれば AGENTS.md から参照）
-.claude-personal/
+.claude/local/
 
 # Playwright MCP のスクショ出力（グローバル gitignore 対象だが念のため）
 .playwright-mcp/
