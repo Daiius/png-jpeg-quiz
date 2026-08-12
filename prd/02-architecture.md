@@ -93,14 +93,22 @@ interface QuizMode {
 
 ### 4-3. 画像配信レイヤ
 
+🔒 **公開タイミングの違う 2 種類を、別々のキー空間に置く。**
+
 ```ts
-type AssetKind = 'display' | 'png' | 'jpeg'
-interface AssetLocator { urlFor(questionId: string, profileId: string, kind: AssetKind): string }
+// 出題時に配る。プロファイル非依存。キーは内容ハッシュ由来でよい
+interface DisplayLocator { urlFor(questionId: string): string }
+
+// 回答後にだけ配る。キーは DB に保持した乱数で、上の URL からも ID からも導出できない
+interface EncodedLocator { urlFor(assetId: string): string }
 ```
 
 - 実体は R2 のカスタムドメイン。すべて不変なので `immutable` キャッシュでよい。
-- `display` は**プロファイルに依存しない**（表示する元画像は 1 つ）。`png` / `jpeg` はプロファイル別。
-- 🔒 **`png` / `jpeg` の URL は回答前のクライアントに渡さない。** 内容ハッシュ由来の推測不能な ID にする。
+- 🔒 **`png` / `jpeg` のキーを `question_id` / `profile_id` / display のキーから導出しない。**
+  URL をレスポンスに含めないだけでは不十分で、**パスが推測できれば回答前に HEAD で答えが取れる**。
+  → キーは暗号学的乱数にして DB に保持する（[03](./03-data-model.md) §5.2）。
+- ⚠ **内容ハッシュも不可**。出題画像（可逆 WebP）からピクセルは復元できるため、
+  同じ手順で PNG を作ればハッシュを計算できてしまう。
 
 ## 5. 画像配信（Cloudflare R2）
 

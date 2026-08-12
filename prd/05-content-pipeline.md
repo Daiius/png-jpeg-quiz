@@ -22,13 +22,24 @@ assets/source/<name>.<ext>      # 素材（原本）
 assets/source/<name>.meta.json  # 出典・作者・ライセンス・カテゴリ・タグ（手書き）
         │  pnpm quiz:build
         ▼
-build/questions.json            # 問題 + 20 プロファイル分の実測値
-build/assets/<hash>/display.webp
-build/assets/<hash>/<profile>/{image.png,image.jpg}
+build/questions.json                    # 問題 + 20 プロファイル分の実測値 + アセットのキー対応
+build/assets/display/<hash>.webp        # 出題時に公開。キーは内容ハッシュ由来でよい
+build/assets/encoded/<random>.png|.jpg  # 回答後のみ。🔒 キーは暗号学的乱数
         │  pnpm quiz:upload
         ▼
 Cloudflare R2
 ```
+
+🔒 **`display` と `encoded` を同じ階層に置かない。** 両者のキーが互いに導出できると、
+display の URL を得た時点で回答用アセットのパスが推測でき、**回答前に HEAD で答えが取れる**
+（[04](./04-session-and-integrity.md) §3.4）。
+
+- `encoded` のキーは**問題 ID・プロファイル ID・display のキーのいずれからも導出できない乱数**にし、
+  対応は DB（`question_encoded_asset`）だけが持つ（[03](./03-data-model.md) §5.2）。
+- ⚠ **内容ハッシュも使えない。** 出題画像（可逆 WebP）からピクセルは復元できるので、
+  同じ手順で PNG を作ればハッシュを計算でき、キーを言い当てられる。
+- ⚠ 乱数キーは**冪等性の例外**。再ビルドで振り直すと既存 URL が切れるため、
+  `questions.json` に記録された既存キーを再利用する（新規アセットのときだけ発行する）。
 
 - `pnpm quiz:build` が全工程を実行する。手で成果物を置くことはしない。
 - 生成物は**リポジトリにコミットしない**（`.gitignore` 済み）。R2 が正。

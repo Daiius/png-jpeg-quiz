@@ -8,7 +8,8 @@
 ## 1. 全体像
 
 ```
-encode_profile ──< question_encoding >── question ──< question_asset >   （静的・ビルド成果物）
+encode_profile ──< question_encoding >── question ──── question_display_asset   （静的・ビルド成果物）
+                          │                  │      └──< question_encoded_asset
                           │                  │
                           └──────────────────┴──< session_question >── session ──< score_entry
                                                           │                              （実行時）
@@ -25,11 +26,11 @@ encode_profile ──< question_encoding >── question ──< question_asset
 
 | カラム | 型 | 備考 |
 |---|---|---|
-| `id` | varchar (PK) | 例: `q80-420-oxi`（標準 = `std-v1` のエイリアス） |
+| `id` | varchar (PK) | `q<品質>-<サブサンプリング>-<png最適化>-v<版>`。標準は `q80-420-oxi-v1` |
 | `jpeg_quality` | int | 60 / 75 / 80 / 90 / 95 |
 | `chroma_subsampling` | enum | `4:2:0` / `4:4:4` |
 | `png_optimize` | bool | oxipng `-o4` をかけるか |
-| `is_standard` | bool | `std-v1` のみ true |
+| `is_standard` | bool | 標準プロファイルのみ true。**エイリアス ID は作らない**（[01](./01-quiz-domain.md) §3.1） |
 | `png_options` / `jpeg_options` / `preprocess` | json | 完全なオプション（再現用） |
 | `tool_versions` | json | sharp / libvips / oxipng / mozjpeg の版 |
 | `published_label` | varchar | サイトに表示する説明文 |
@@ -67,22 +68,35 @@ encode_profile ──< question_encoding >── question ──< question_asset
 - **インデックス**: `(profile_id, difficulty)`（出題選択）、`(profile_id, answer)`（偏りの集計）。
 - 🔒 **`difficulty` と `log2_ratio` は回答前のレスポンスに含めない**（[04](./04-session-and-integrity.md) §3.5）。
 
-## 5. `question_asset` — 配布物
+## 5. 配布アセット — 2 つのテーブルに分ける
 
-| `kind` | プロファイル依存 | 内容 | 公開タイミング |
-|---|---|---|---|
-| `display` | **しない** | 出題中に見せる**可逆 WebP**（[04](./04-session-and-integrity.md) §3） | 出題時 |
-| `png` | する（2 通り） | その条件の PNG 実物 | **回答後のみ** |
-| `jpeg` | する（10 通り） | その条件の JPEG 実物 | **回答後のみ** |
+🔒 **公開タイミングが違うものを 1 つのテーブル・1 つのキー空間にまとめない。**
+出題時に公開する `display` と、回答後にだけ見せる `png` / `jpeg` は、
+**キーが互いに導出できてはならない**（[04](./04-session-and-integrity.md) §3.4）。
 
-| カラム | 型 |
-|---|---|
-| `question_id` / `profile_id`(nullable) / `kind` | 複合 PK |
-| `path` | varchar（R2 のキー） |
-| `bytes` / `content_type` / `sha256` | |
+### 5.1 `question_display_asset` — 出題時に配る（プロファイル非依存）
 
-> `png` / `jpeg` の `bytes` は `question_encoding` にも冗長に持つ（出題クエリで JOIN しないため）。
-> **一致を CI で検査する**（[05](./05-content-pipeline.md) §6）。
+| カラム | 型 | 備考 |
+|---|---|---|
+| `question_id` | varchar (PK) | 1 問につき 1 行 |
+| `object_key` | varchar | R2 のキー。**内容ハッシュ由来でよい**（公開してよい） |
+| `bytes` / `content_type` / `sha256` | | `content_type` は必ず `image/webp` |
+
+### 5.2 `question_encoded_asset` — 回答後に見せる（プロファイル依存）
+
+| カラム | 型 | 備考 |
+|---|---|---|
+| `id` | varchar (PK) | **暗号学的乱数**（非 null の代理キー） |
+| `question_id` / `profile_id` / `kind`(`png`\|`jpeg`) | | **この 3 列に UNIQUE 制約** |
+| `object_key` | varchar | 🔒 **乱数由来**。`question_id` / `profile_id` / display のキーから**導出できてはならない** |
+| `bytes` / `content_type` / `sha256` | | |
+
+- ⚠ **`object_key` を内容ハッシュにしてはいけない。** 出題画像（可逆 WebP）からピクセルは復元できるので、
+  同じ手順で PNG を作ればハッシュが計算でき、回答前にキーを言い当てられる。
+- ⚠ MySQL の主キー列は暗黙に NOT NULL になるため、**nullable な `profile_id` を PK に含めない**
+  （テーブルを分けたのはこの制約も理由の一つ）。
+- `bytes` は `question_encoding` にも冗長に持つ（出題クエリで JOIN しないため）。
+  **一致を CI で検査する**（[05](./05-content-pipeline.md) §6）。
 
 ## 6. `session` — 1 プレイ
 
