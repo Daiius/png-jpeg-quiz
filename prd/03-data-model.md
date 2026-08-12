@@ -48,7 +48,7 @@ encode_profile ──< question_encoding >── question ──── question_
 | `width` / `height` | int | |
 | `category` | enum | `photo` / `illustration` / `screenshot` / `pixel-art` / `render` / `synthetic` |
 | `color_count` | int | 257 = 256 超（可逆パレット化の可否に効く） |
-| `flat_ratio` | real | 隣接画素との差が 0 の画素の割合。**PNG の効きを直接説明する指標**（[05](./05-content-pipeline.md) §3.1） |
+| `flat_ratio` | real | **隣接ペアのうち RGB が完全一致する割合**（定義は [05](./05-content-pipeline.md) §3.1）。PNG の効きを直接説明する指標 |
 | `tags` | json | `noise` / `gradient` / `flat` / `text` / `low-color` / `blurred` など |
 | `is_synthetic` | bool | 意地悪問題として加工したもの |
 | `derivation` | json \| null | 加工内容（元素材 ID・操作列・**背景合成の色**） |
