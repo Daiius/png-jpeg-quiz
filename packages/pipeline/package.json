@@ -7,11 +7,14 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "node --experimental-strip-types src/cli.ts"
   },
   "dependencies": {
+    "@jsquash/oxipng": "catalog:",
     "@png-jpeg-quiz/database": "workspace:*",
     "@png-jpeg-quiz/quiz-core": "workspace:*",
+    "drizzle-orm": "catalog:",
     "sharp": "catalog:",
     "zod": "catalog:"
   },
