@@ -93,6 +93,8 @@ encode_profile ──< question_encoding >── question ──── question_
 
 - ⚠ **`object_key` を内容ハッシュにしてはいけない。** 出題画像（可逆 WebP）からピクセルは復元できるので、
   同じ手順で PNG を作ればハッシュが計算でき、回答前にキーを言い当てられる。
+- **このテーブルがキーの正**。再ビルド時は `(question_id, profile_id, kind)` で既存行を引いて
+  キーを再利用し、無いときだけ発行する（[05](./05-content-pipeline.md) §2）。
 - ⚠ MySQL の主キー列は暗黙に NOT NULL になるため、**nullable な `profile_id` を PK に含めない**
   （テーブルを分けたのはこの制約も理由の一つ）。
 - `bytes` は `question_encoding` にも冗長に持つ（出題クエリで JOIN しないため）。
