@@ -23,8 +23,10 @@ export {
   questionIdSchema,
   questionResponseSchema,
   questionViewSchema,
+  type SubmitAction,
   type SubmitAnswerRequest,
   sessionIdSchema,
+  submitActionSchema,
   submitAnswerRequestSchema,
 } from './contract.ts'
 export { answerFor, log2Ratio, staticDifficulty } from './difficulty.ts'
@@ -36,6 +38,7 @@ export {
   MODES,
   type ModeState,
   type PoolEntry,
+  practice,
   QUESTION_TIME_LIMIT_MS,
   type QuizMode,
   STANDARD_30_QUESTION_COUNT,

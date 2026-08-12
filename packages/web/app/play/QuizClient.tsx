@@ -1,6 +1,11 @@
 'use client'
 
-import type { Answer, AnswerResult, ProfileResult, QuestionView } from '@png-jpeg-quiz/quiz-core'
+import type {
+  AnswerResult,
+  ProfileResult,
+  QuestionView,
+  SubmitAction,
+} from '@png-jpeg-quiz/quiz-core'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
@@ -46,24 +51,43 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
     void loadQuestion()
   }, [loadQuestion])
 
-  async function answer(question: QuestionView, chosen: Answer) {
+  /**
+   * 🔒 `action` が `'timeout'` のときは**どちらを選んだかを送らない**（prd/04 §2）。
+   * 期限を過ぎたかどうかはサーバが `served_at` から判定する。
+   * まだ期限前だった場合（425）は、サーバが返した残り時間だけ待って送り直す。
+   */
+  async function submit(question: QuestionView, action: SubmitAction) {
     // 時間切れの自動送信とユーザーのクリックが重なることがある
     if (submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
     try {
-      const response = await fetch(`/api/session/${sessionId}/answer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questionId: question.questionId, answer: chosen }),
-      })
-      if (!response.ok) {
-        setPhase({ kind: 'error', message: `回答を送れませんでした（${response.status}）` })
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const response = await fetch(`/api/session/${sessionId}/answer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ questionId: question.questionId, answer: action }),
+        })
+
+        if (response.status === 425) {
+          // サーバ基準ではまだ期限前だった（端末の時計が進んでいる）
+          const body = await response.json().catch(() => ({ remainingMs: 1000 }))
+          const waitMs = Math.min(5000, Math.max(200, Number(body.remainingMs) || 1000))
+          await new Promise((resolve) => setTimeout(resolve, waitMs + 100))
+          continue
+        }
+
+        if (!response.ok) {
+          setPhase({ kind: 'error', message: `回答を送れませんでした（${response.status}）` })
+          return
+        }
+
+        const result: AnswerResult = await response.json()
+        setScore((current) => current + result.awardedPoints)
+        setPhase({ kind: 'result', question, result })
         return
       }
-      const result: AnswerResult = await response.json()
-      setScore((current) => current + result.awardedPoints)
-      setPhase({ kind: 'result', question, result })
+      setPhase({ kind: 'error', message: '時間切れの確定に失敗しました。再読み込みしてください' })
     } finally {
       submittingRef.current = false
       setSubmitting(false)
@@ -105,7 +129,7 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
         <Countdown
           servedAt={question.servedAt}
           timeLimitMs={question.timeLimitMs}
-          onTimeout={() => void answer(question, 'jpeg')}
+          onTimeout={() => void submit(question, 'timeout')}
         />
       ) : null}
 
@@ -127,7 +151,7 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
             <button
               type="button"
               disabled={submitting}
-              onClick={() => void answer(question, 'png')}
+              onClick={() => void submit(question, 'png')}
               className="flex-1 rounded border border-slate-300 px-6 py-4 text-lg font-bold hover:bg-slate-50 disabled:opacity-50"
             >
               PNG
@@ -135,7 +159,7 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
             <button
               type="button"
               disabled={submitting}
-              onClick={() => void answer(question, 'jpeg')}
+              onClick={() => void submit(question, 'jpeg')}
               className="flex-1 rounded border border-slate-300 px-6 py-4 text-lg font-bold hover:bg-slate-50 disabled:opacity-50"
             >
               JPEG
@@ -284,6 +308,7 @@ function Countdown({
   timeLimitMs,
   onTimeout,
 }: {
+  /** 問題ごとに変わる識別子として使う（値そのものは時計合わせに使わない） */
   servedAt: string
   timeLimitMs: number
   onTimeout: () => void
@@ -297,10 +322,13 @@ function Countdown({
 
   useEffect(() => {
     fired.current = false
-    const servedAtMs = new Date(servedAt).getTime()
+    // ⚠ **サーバの絶対時刻と端末の時計を突き合わせない。**
+    // ずれていると表示がずれるだけでなく、期限前に timeout を送ってしまう。
+    // ここは「この画面を描き始めてからの経過」だけを測る（判定はサーバ）
+    const startedAt = Date.now()
 
     function tick() {
-      const remaining = servedAtMs + timeLimitMs - Date.now()
+      const remaining = timeLimitMs - (Date.now() - startedAt)
       setRemainingMs(Math.max(0, remaining))
       if (remaining <= 0 && !fired.current) {
         fired.current = true

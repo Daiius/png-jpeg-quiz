@@ -70,9 +70,18 @@ export type QuestionResponse = z.infer<typeof questionResponseSchema>
 
 // --- POST /api/session/:id/answer ---
 
+/**
+ * 🔒 **時間切れはクライアントが「JPEG を選んだ」ことにしてはいけない**（prd/04 §2, §5）。
+ * 端末の時計がサーバより進んでいると、サーバの 20 秒が経過する前に回答が確定してしまい、
+ * 偶然その答えが正解なら得点まで入る。**時間切れは方向を持たない `timeout` として送り、
+ * 期限を過ぎたかどうかはサーバが `served_at` から判定する。**
+ */
+export const submitActionSchema = z.union([answerSchema, z.literal('timeout')])
+export type SubmitAction = z.infer<typeof submitActionSchema>
+
 export const submitAnswerRequestSchema = z.object({
   questionId: questionIdSchema,
-  answer: answerSchema,
+  answer: submitActionSchema,
 })
 export type SubmitAnswerRequest = z.infer<typeof submitAnswerRequestSchema>
 
@@ -101,7 +110,8 @@ export type ProfileResult = z.infer<typeof profileResultSchema>
 export const answerResultSchema = z.object({
   correct: z.boolean(),
   answer: answerSchema,
-  chosen: answerSchema,
+  /** 時間切れなら `null`（どちらも選んでいない） */
+  chosen: answerSchema.nullable(),
   pngBytes: z.number().int().positive(),
   jpegBytes: z.number().int().positive(),
   pngUrl: z.url(),

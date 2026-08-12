@@ -18,6 +18,7 @@ import {
   type ProfileResult,
   QUESTION_TIME_LIMIT_MS,
   type QuestionView,
+  type SubmitAction,
   standard30,
 } from '@png-jpeg-quiz/quiz-core'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
@@ -148,6 +149,8 @@ export type SubmitOutcome =
   | { status: 'not-current' }
   | { status: 'already-answered' }
   | { status: 'too-fast' }
+  /** `timeout` が届いたが、サーバ基準ではまだ期限前。クライアントは待ってから再送する */
+  | { status: 'not-expired'; remainingMs: number }
 
 /**
  * 回答の受付と採点。
@@ -158,7 +161,7 @@ export type SubmitOutcome =
 export async function submitAnswer(
   row: SessionRow,
   questionId: string,
-  chosen: Answer,
+  action: SubmitAction,
 ): Promise<SubmitOutcome> {
   const database = getDatabase()
 
@@ -191,14 +194,25 @@ export async function submitAnswer(
   const encoding = encodingRows[0]
   if (!encoding) return { status: 'not-current' }
 
+  // 🔒 経過時間はサーバの `served_at` 基準（prd/03 §7）。クライアントの時計は使わない
   const elapsedMs = Date.now() - served.servedAt.getTime()
   const timing = classifyTiming(elapsedMs)
-  // 🔒 人間に不可能な速さは受け付けない（prd/04 §5 / T6）
-  if (timing === 'too-fast') return { status: 'too-fast' }
 
-  // 🔒 時間切れは不正解扱い（prd/04 §5）。選んだ内容によらず 0 点
+  if (action === 'timeout') {
+    // 🔒 **期限を過ぎたかどうかはサーバだけが決める。**
+    // 端末の時計が進んでいると期限前に timeout が飛んでくる。まだ期限前なら受け付けない
+    if (timing !== 'timed-out') {
+      return { status: 'not-expired', remainingMs: QUESTION_TIME_LIMIT_MS - elapsedMs }
+    }
+  } else if (timing === 'too-fast') {
+    // 🔒 人間に不可能な速さは受け付けない（prd/04 §5 / T6）
+    return { status: 'too-fast' }
+  }
+
+  // 🔒 時間切れは不正解扱い（prd/04 §5）。方向を持たないので `chosen` は null
   const timedOut = timing === 'timed-out'
-  const correct = !timedOut && encoding.answer === chosen
+  const chosen: Answer | null = action === 'timeout' ? null : action
+  const correct = !timedOut && chosen !== null && encoding.answer === chosen
 
   // 得点はサプライザル方式（prd/06 §1）。🔒 実測正答率は混ぜない
   const profileRows = await database
@@ -214,7 +228,9 @@ export async function submitAnswer(
       ? mode.score({
           correct,
           answer: encoding.answer,
-          difficulty: encoding.difficulty,
+          // 🔒 **出題時点の難易度**を使う（prd/03 §7）。問題データが再生成されても
+          // 同じ出題に対する得点が再現できるようにする
+          difficulty: served.difficultyAtServe,
           pngWinRate,
         })
       : // プールが片方に寄りきっていると -log2(0) が発散する。
@@ -236,6 +252,7 @@ export async function submitAnswer(
       .update(sessionQuestion)
       .set({
         answeredAt: new Date(),
+        // 時間切れは「どちらも選んでいない」= null。`answered_at` が入っているので未回答とは区別できる
         answer: chosen,
         isCorrect: correct,
         elapsedMs,
