@@ -1,0 +1,31 @@
+{
+  "name": "png-jpeg-quiz",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.13.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "docker compose watch",
+    "dev:logs": "docker compose logs -f",
+    "dev:down": "docker compose down",
+    "typecheck": "pnpm -r --no-bail typecheck",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "pnpm --filter @png-jpeg-quiz/database migrate",
+    "db:seed": "pnpm --filter @png-jpeg-quiz/database seed",
+    "quiz:build": "pnpm --filter @png-jpeg-quiz/pipeline build",
+    "quiz:upload": "pnpm --filter @png-jpeg-quiz/pipeline upload",
+    "hooks:install": "git config core.hooksPath .githooks"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
