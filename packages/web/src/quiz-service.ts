@@ -8,7 +8,7 @@ import {
   sessionQuestion,
 } from '@png-jpeg-quiz/database'
 import type { Answer, AnswerResult, QuestionView } from '@png-jpeg-quiz/quiz-core'
-import { and, asc, eq, notInArray, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, notInArray, sql } from 'drizzle-orm'
 import { assetUrl } from './env.ts'
 import type { SessionRow } from './session.ts'
 
@@ -167,38 +167,55 @@ export async function submitAnswer(
 
   // TODO(spec): 得点は M2（prd/06 §1 のサプライザル方式）。M1 は正解 1 点で通す
   const awardedPoints = correct ? 1 : 0
-
-  await database
-    .update(sessionQuestion)
-    .set({
-      answeredAt: new Date(),
-      answer: chosen,
-      isCorrect: correct,
-      elapsedMs,
-      awardedPoints,
-    })
-    .where(
-      and(
-        eq(sessionQuestion.sessionId, row.id),
-        eq(sessionQuestion.questionIndex, row.currentIndex),
-      ),
-    )
-
   const nextIndex = row.currentIndex + 1
   const streak = correct ? row.streak + 1 : 0
-  await database
-    .update(session)
-    .set({
-      currentIndex: nextIndex,
-      correctCount: sql`${session.correctCount} + ${correct ? 1 : 0}`,
-      streak,
-      maxStreak: Math.max(row.maxStreak, streak),
-      score: sql`${session.score} + ${awardedPoints}`,
-      ...(nextIndex >= row.questionCount
-        ? { status: 'finished' as const, finishedAt: new Date() }
-        : {}),
-    })
-    .where(eq(session.id, row.id))
+
+  /**
+   * 🔒 **回答の受付は 1 回だけ**（prd/03 §7, prd/04 §2 の T4）。
+   *
+   * 上の `answeredAt` チェックだけでは、同じ Cookie で並行 POST されたときに
+   * すべてのリクエストが「未回答」を読んで通り、`score` と `correct_count` が二重に積まれる。
+   * **`answered_at IS NULL` を条件にした UPDATE で 1 件更新できた者だけ**が
+   * セッション集計に進む。回答行とセッション行は同じトランザクションで確定させる。
+   */
+  const accepted = await database.transaction(async (tx) => {
+    const [result] = await tx
+      .update(sessionQuestion)
+      .set({
+        answeredAt: new Date(),
+        answer: chosen,
+        isCorrect: correct,
+        elapsedMs,
+        awardedPoints,
+      })
+      .where(
+        and(
+          eq(sessionQuestion.sessionId, row.id),
+          eq(sessionQuestion.questionIndex, row.currentIndex),
+          isNull(sessionQuestion.answeredAt),
+        ),
+      )
+
+    if (result.affectedRows !== 1) return false
+
+    await tx
+      .update(session)
+      .set({
+        currentIndex: nextIndex,
+        correctCount: sql`${session.correctCount} + ${correct ? 1 : 0}`,
+        streak,
+        maxStreak: sql`GREATEST(${session.maxStreak}, ${streak})`,
+        score: sql`${session.score} + ${awardedPoints}`,
+        ...(nextIndex >= row.questionCount
+          ? { status: 'finished' as const, finishedAt: new Date() }
+          : {}),
+      })
+      .where(eq(session.id, row.id))
+
+    return true
+  })
+
+  if (!accepted) return { status: 'already-answered' }
 
   const assets = await database
     .select({ kind: questionEncodedAsset.kind, objectKey: questionEncodedAsset.objectKey })
