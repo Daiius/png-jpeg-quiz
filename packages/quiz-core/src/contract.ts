@@ -51,6 +51,10 @@ export const questionViewSchema = z.object({
   questionId: questionIdSchema,
   index: z.number().int().nonnegative(),
   total: z.number().int().positive(),
+  /** 制限時間（ミリ秒）。カウントダウン表示に使う。判定はサーバが行う */
+  timeLimitMs: z.number().int().positive(),
+  /** サーバが出題した時刻（ISO 8601）。残り時間はこれを基準に描く */
+  servedAt: z.string(),
   displayUrl: z.url(),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -105,6 +109,8 @@ export const answerResultSchema = z.object({
   displayUrl: z.url(),
   log2Ratio: z.number(),
   awardedPoints: z.number(),
+  /** 制限時間を過ぎていたか（過ぎていれば内容によらず不正解・0 点。prd/04 §5） */
+  timedOut: z.boolean(),
   explanation: z.string().nullable(),
   source: z.record(z.string(), z.unknown()),
   /** 20 プロファイルすべての結果（prd/04 §4） */
