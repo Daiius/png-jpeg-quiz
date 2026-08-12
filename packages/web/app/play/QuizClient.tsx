@@ -127,7 +127,8 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
 
       {phase.kind === 'question' ? (
         <Countdown
-          servedAt={question.servedAt}
+          key={question.questionId}
+          remainingMs={question.remainingMs}
           timeLimitMs={question.timeLimitMs}
           onTimeout={() => void submit(question, 'timeout')}
         />
@@ -304,16 +305,16 @@ function ProfileResultsTable({ results }: { results: readonly ProfileResult[] })
  * クライアントの時計を信用しない（prd/03 §7）。
  */
 function Countdown({
-  servedAt,
+  remainingMs: initialRemainingMs,
   timeLimitMs,
   onTimeout,
 }: {
-  /** 問題ごとに変わる識別子として使う（値そのものは時計合わせに使わない） */
-  servedAt: string
+  /** サーバがレスポンス生成時に計算した残り時間。**再読み込みしても正しい値から始まる** */
+  remainingMs: number
   timeLimitMs: number
   onTimeout: () => void
 }) {
-  const [remainingMs, setRemainingMs] = useState(timeLimitMs)
+  const [remainingMs, setRemainingMs] = useState(initialRemainingMs)
   const fired = useRef(false)
   // ⚠ onTimeout は毎レンダリングで新しい関数になる。依存に入れると effect が再実行され、
   // `fired` がリセットされて**同じ問題に 2 回目の回答が飛ぶ**（409 になる）。ref で逃がす。
@@ -322,13 +323,13 @@ function Countdown({
 
   useEffect(() => {
     fired.current = false
-    // ⚠ **サーバの絶対時刻と端末の時計を突き合わせない。**
-    // ずれていると表示がずれるだけでなく、期限前に timeout を送ってしまう。
-    // ここは「この画面を描き始めてからの経過」だけを測る（判定はサーバ）
+    // ⚠ **サーバの絶対時刻と端末の時計を突き合わせない**（ずれると期限前に timeout が飛ぶ）。
+    // 起点はサーバが計算した残り時間で、ここでは**経過分を引くだけ**。
+    // こうすると再読み込みしても残り時間が巻き戻らない（判定は引き続きサーバ）
     const startedAt = Date.now()
 
     function tick() {
-      const remaining = timeLimitMs - (Date.now() - startedAt)
+      const remaining = initialRemainingMs - (Date.now() - startedAt)
       setRemainingMs(Math.max(0, remaining))
       if (remaining <= 0 && !fired.current) {
         fired.current = true
@@ -339,7 +340,7 @@ function Countdown({
     tick()
     const timer = setInterval(tick, 100)
     return () => clearInterval(timer)
-  }, [servedAt, timeLimitMs])
+  }, [initialRemainingMs])
 
   const ratio = Math.max(0, Math.min(1, remainingMs / timeLimitMs))
   const seconds = Math.ceil(remainingMs / 1000)

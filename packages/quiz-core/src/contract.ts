@@ -51,10 +51,17 @@ export const questionViewSchema = z.object({
   questionId: questionIdSchema,
   index: z.number().int().nonnegative(),
   total: z.number().int().positive(),
-  /** 制限時間（ミリ秒）。カウントダウン表示に使う。判定はサーバが行う */
+  /** 制限時間（ミリ秒）。表示用 */
   timeLimitMs: z.number().int().positive(),
-  /** サーバが出題した時刻（ISO 8601）。残り時間はこれを基準に描く */
-  servedAt: z.string(),
+  /**
+   * **このレスポンスを作った時点でサーバが計算した残り時間**（ミリ秒）。
+   *
+   * 🔒 端末の時計とサーバの絶対時刻を突き合わせない（ずれると期限前に時間切れが飛ぶ）。
+   * かといって「画面を描いた時点から満了まで」にすると、**再読み込みで残り時間が戻ってしまう**。
+   * サーバが `served_at` から計算した相対値を渡し、クライアントはそこから減らすだけにする。
+   * **期限の判定自体は引き続きサーバが行う。**
+   */
+  remainingMs: z.number().int().nonnegative(),
   displayUrl: z.url(),
   width: z.number().int().positive(),
   height: z.number().int().positive(),

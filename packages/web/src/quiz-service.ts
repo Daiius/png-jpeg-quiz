@@ -136,7 +136,8 @@ async function toQuestionView(
     index,
     total,
     timeLimitMs: QUESTION_TIME_LIMIT_MS,
-    servedAt: servedAt.toISOString(),
+    // サーバが今この瞬間に計算した残り時間（prd/04 §5）
+    remainingMs: Math.max(0, QUESTION_TIME_LIMIT_MS - (Date.now() - servedAt.getTime())),
     displayUrl: assetUrl(row.objectKey),
     width: row.width,
     height: row.height,
