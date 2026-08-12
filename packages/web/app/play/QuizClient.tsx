@@ -34,6 +34,8 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
 
   const loadQuestion = useCallback(async () => {
     setPhase({ kind: 'loading' })
+    // ⚠ **単調時計で測る**（`performance.now()`）。端末の時計が途中で変わっても影響を受けない
+    const requestedAt = performance.now()
     const response = await fetch(`/api/session/${sessionId}/question`)
     if (!response.ok) {
       setPhase({ kind: 'error', message: `出題を取得できませんでした（${response.status}）` })
@@ -44,7 +46,17 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
       setPhase({ kind: 'finished' })
       return
     }
-    setPhase({ kind: 'question', question: body.question })
+
+    // 🔒 **転送にかかった時間を期限に足さない**（prd/04 §5）。
+    // `remainingMs` はサーバがレスポンスを作った時点の値なので、受信までの往復分を引く。
+    // 往復全部を引くのは保守的（実際より少し短く出る）だが、
+    // **表示が残っているのにサーバでは期限切れ**という取り違えを防ぐ側に倒す。
+    const transferMs = performance.now() - requestedAt
+    const question: QuestionView = {
+      ...body.question,
+      remainingMs: Math.max(0, body.question.remainingMs - transferMs),
+    }
+    setPhase({ kind: 'question', question })
   }, [sessionId])
 
   useEffect(() => {
