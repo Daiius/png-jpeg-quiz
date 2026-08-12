@@ -148,16 +148,21 @@ async function buildOne(
     }
   }
 
-  // 🔒 **20 プロファイルすべてが揃った問題だけを published にする**（prd/05 §3, §6）。
+  // 🔒 **現行 20 プロファイルすべてが揃った問題だけを published にする**（prd/05 §3, §6）。
   // 揃っていないと正解画面が「他の条件ならどうなるか」を出せない（prd/04 §4）。
-  const encodingCount = await database
+  // ⚠ **行数で数えない。** 旧版のプロファイル行が残っている運用では、
+  // 20 行あっても現行プロファイルが欠けていることがある。**現行 ID の集合で確かめる。**
+  const existing = await database
     .select({ profileId: questionEncoding.profileId })
     .from(questionEncoding)
     .where(eq(questionEncoding.questionId, questionId))
+  const presentIds = new Set(existing.map((row) => row.profileId))
 
   // TODO(spec): 本来はここで draft に入れ、人手レビュー（prd/05 §3 ステップ 11）を経て
   // published にする。レビュー UI は M3 以降なので、当面は揃った時点で published にする。
-  const status = encodingCount.length >= ENCODE_PROFILES.length ? 'published' : 'draft'
+  const status = ENCODE_PROFILES.every((profile) => presentIds.has(profile.id))
+    ? 'published'
+    : 'draft'
   await database.update(question).set({ status }).where(eq(question.id, questionId))
 
   return { encodings: results.length, status }
