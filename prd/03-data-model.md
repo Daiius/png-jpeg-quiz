@@ -58,7 +58,8 @@ encode_profile ──< question_encoding >── question ──── question_
 
 - 🔒 **`color_count` / `flat_ratio` / `tags` / `is_synthetic` / `derivation` は回答前のレスポンスに含めない。**
   いずれも「PNG が効く画像か」を直接示すので、**答えの方向が漏れる**（[04](./04-session-and-integrity.md) §3.5）。
-  回答前に渡してよいのは `display` の URL と寸法だけ。
+  回答前に渡してよいのは **`display` の URL・寸法・`category`** だけ（[02](./02-architecture.md) §4-2）。
+  `category`（写真 / イラスト …）は**画像を見れば分かる**ので、追加の手がかりにならない。
 
 ## 4. `question_encoding` — 条件ごとの結果（問題 × プロファイル）
 
