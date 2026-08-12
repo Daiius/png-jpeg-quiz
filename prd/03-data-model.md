@@ -48,12 +48,17 @@ encode_profile ──< question_encoding >── question ──── question_
 | `width` / `height` | int | |
 | `category` | enum | `photo` / `illustration` / `screenshot` / `pixel-art` / `render` / `synthetic` |
 | `color_count` | int | 257 = 256 超（可逆パレット化の可否に効く） |
+| `flat_ratio` | real | 隣接画素との差が 0 の画素の割合。**PNG の効きを直接説明する指標**（[05](./05-content-pipeline.md) §3.1） |
 | `tags` | json | `noise` / `gradient` / `flat` / `text` / `low-color` / `blurred` など |
 | `is_synthetic` | bool | 意地悪問題として加工したもの |
-| `derivation` | json \| null | 加工内容（元素材 ID・操作列） |
+| `derivation` | json \| null | 加工内容（元素材 ID・操作列・**背景合成の色**） |
 | `source` | json | 出典 URL・作者・**ライセンス**・取得日 |
 | `explanation` | text \| null | 一行解説 |
 | `status` | enum | `draft` / `published` / `retired` |
+
+- 🔒 **`color_count` / `flat_ratio` / `tags` / `is_synthetic` / `derivation` は回答前のレスポンスに含めない。**
+  いずれも「PNG が効く画像か」を直接示すので、**答えの方向が漏れる**（[04](./04-session-and-integrity.md) §3.5）。
+  回答前に渡してよいのは `display` の URL と寸法だけ。
 
 ## 4. `question_encoding` — 条件ごとの結果（問題 × プロファイル）
 
