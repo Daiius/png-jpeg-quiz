@@ -1,0 +1,60 @@
+# 開発環境（prd/02 §6）。MySQL はホストにポートを出さず compose 網内だけで使う。
+# 起動: pnpm dev（= docker compose watch）
+name: png-jpeg-quiz
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set it in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-png_jpeg_quiz}
+      MYSQL_USER: ${MYSQL_USER:-quiz}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set it in .env}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    # named volume だけを使う（bind mount は使わない）
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      # 初期化に十数秒かかる。web はこれが通るまで待つ
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-uroot', '-p$$MYSQL_ROOT_PASSWORD']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: mysql://${MYSQL_USER:-quiz}:${MYSQL_PASSWORD:?set it in .env}@db:3306/${MYSQL_DATABASE:-png_jpeg_quiz}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
+      ASSET_BASE_URL: ${ASSET_BASE_URL:-http://localhost:3000/assets}
+    ports:
+      # ホストに出すのは web だけ
+      - '${WEB_PORT:-3000}:3000'
+    develop:
+      watch:
+        - action: sync
+          path: ./packages
+          target: /app/packages
+          ignore:
+            - node_modules/
+            - .next/
+        # 依存が変わったらイメージを作り直す
+        - action: rebuild
+          path: ./pnpm-lock.yaml
+        - action: rebuild
+          path: ./pnpm-workspace.yaml
+
+volumes:
+  db-data:
