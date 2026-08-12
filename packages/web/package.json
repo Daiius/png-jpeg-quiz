@@ -12,6 +12,7 @@
   "dependencies": {
     "@png-jpeg-quiz/database": "workspace:*",
     "@png-jpeg-quiz/quiz-core": "workspace:*",
+    "drizzle-orm": "catalog:",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

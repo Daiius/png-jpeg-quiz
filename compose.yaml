@@ -42,6 +42,12 @@ services:
     ports:
       # ホストに出すのは web だけ
       - '${WEB_PORT:-3000}:3000'
+    volumes:
+      # pnpm quiz:build の成果物（M4 までは web がここから配信する）。
+      # bind mount ではなく named volume にして、ホスト側のファイル権限に依存させない
+      - build-data:/app/build
+      # 素材は「入力データ」。イメージには焼かず（.dockerignore 済み）読み取り専用で見せる
+      - ./assets:/app/assets:ro
     develop:
       watch:
         - action: sync
@@ -71,3 +77,4 @@ services:
 
 volumes:
   db-data:
+  build-data:

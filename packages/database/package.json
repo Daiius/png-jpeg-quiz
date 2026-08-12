@@ -7,14 +7,20 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "generate": "drizzle-kit generate",
+    "migrate": "node --experimental-strip-types src/migrate.ts",
+    "seed": "node --experimental-strip-types src/seed.ts"
   },
   "dependencies": {
+    "@png-jpeg-quiz/quiz-core": "workspace:*",
+    "drizzle-orm": "catalog:",
     "mysql2": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "drizzle-kit": "catalog:",
     "typescript": "catalog:"
   }
 }
