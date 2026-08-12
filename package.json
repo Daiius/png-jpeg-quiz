@@ -20,6 +20,7 @@
     "db:migrate": "pnpm --filter @png-jpeg-quiz/database migrate",
     "db:seed": "pnpm --filter @png-jpeg-quiz/database seed",
     "quiz:build": "pnpm --filter @png-jpeg-quiz/pipeline build",
+    "quiz:recalc": "pnpm --filter @png-jpeg-quiz/pipeline recalc",
     "quiz:upload": "pnpm --filter @png-jpeg-quiz/pipeline upload",
     "hooks:install": "git config core.hooksPath .githooks"
   },

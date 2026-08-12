@@ -23,11 +23,28 @@ export {
   questionIdSchema,
   questionResponseSchema,
   questionViewSchema,
+  type SubmitAction,
   type SubmitAnswerRequest,
   sessionIdSchema,
+  submitActionSchema,
   submitAnswerRequestSchema,
 } from './contract.ts'
 export { answerFor, log2Ratio, staticDifficulty } from './difficulty.ts'
+export {
+  type AnswerTiming,
+  classifyTiming,
+  findMode,
+  MIN_ANSWER_MS,
+  MODES,
+  type ModeState,
+  type PoolEntry,
+  practice,
+  QUESTION_TIME_LIMIT_MS,
+  type QuizMode,
+  STANDARD_30_QUESTION_COUNT,
+  standard30,
+  targetDifficulty,
+} from './mode.ts'
 export {
   buildProfileId,
   CHROMA_SUBSAMPLINGS,
@@ -45,3 +62,11 @@ export {
   profileIdSchema,
   STANDARD_PROFILE_ID,
 } from './profile.ts'
+export {
+  answerProbability,
+  difficultyWeight,
+  expectedSurprisal,
+  type ScoreInput,
+  scoreQuestion,
+  surprisal,
+} from './score.ts'

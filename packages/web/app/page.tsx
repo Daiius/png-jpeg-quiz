@@ -1,5 +1,5 @@
 import { STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
-import { StartButton } from './StartButton.tsx'
+import { StartPanel } from './StartPanel.tsx'
 
 export default function HomePage() {
   return (
@@ -19,11 +19,16 @@ export default function HomePage() {
         </dd>
       </dl>
 
-      <StartButton />
+      <StartPanel />
 
-      <p className="text-xs text-slate-500">
-        正解はサーバだけが持っています。回答すると PNG / JPEG 両方の実物とバイト数を表示します。
+      <p className="text-slate-500 text-xs">
+        正解はサーバだけが持っています。回答すると PNG / JPEG 両方の実物とバイト数、 そして 20
+        条件すべての結果を表示します。
       </p>
+
+      <a className="text-blue-700 text-sm underline" href="/conditions">
+        エンコード条件の詳細を見る
+      </a>
     </main>
   )
 }

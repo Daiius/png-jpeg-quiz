@@ -51,6 +51,17 @@ export const questionViewSchema = z.object({
   questionId: questionIdSchema,
   index: z.number().int().nonnegative(),
   total: z.number().int().positive(),
+  /** 制限時間（ミリ秒）。表示用 */
+  timeLimitMs: z.number().int().positive(),
+  /**
+   * **このレスポンスを作った時点でサーバが計算した残り時間**（ミリ秒）。
+   *
+   * 🔒 端末の時計とサーバの絶対時刻を突き合わせない（ずれると期限前に時間切れが飛ぶ）。
+   * かといって「画面を描いた時点から満了まで」にすると、**再読み込みで残り時間が戻ってしまう**。
+   * サーバが `served_at` から計算した相対値を渡し、クライアントはそこから減らすだけにする。
+   * **期限の判定自体は引き続きサーバが行う。**
+   */
+  remainingMs: z.number().int().nonnegative(),
   displayUrl: z.url(),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -59,16 +70,36 @@ export const questionViewSchema = z.object({
 export type QuestionView = z.infer<typeof questionViewSchema>
 
 export const questionResponseSchema = z.union([
-  z.object({ status: z.literal('question'), question: questionViewSchema }),
+  z.object({
+    status: z.literal('question'),
+    question: questionViewSchema,
+    /**
+     * このリクエストをサーバ内部で処理するのにかかった時間（ミリ秒）。
+     *
+     * クライアントは往復時間からこれを引いて**ネットワーク分だけ**を残り時間から差し引く。
+     * 引かないと、出題を確定する前（`served_at` を作る前）のサーバ処理時間まで
+     * 回答時間から削ってしまう。
+     */
+    serverProcessingMs: z.number().nonnegative(),
+  }),
   z.object({ status: z.literal('finished') }),
 ])
 export type QuestionResponse = z.infer<typeof questionResponseSchema>
 
 // --- POST /api/session/:id/answer ---
 
+/**
+ * 🔒 **時間切れはクライアントが「JPEG を選んだ」ことにしてはいけない**（prd/04 §2, §5）。
+ * 端末の時計がサーバより進んでいると、サーバの 20 秒が経過する前に回答が確定してしまい、
+ * 偶然その答えが正解なら得点まで入る。**時間切れは方向を持たない `timeout` として送り、
+ * 期限を過ぎたかどうかはサーバが `served_at` から判定する。**
+ */
+export const submitActionSchema = z.union([answerSchema, z.literal('timeout')])
+export type SubmitAction = z.infer<typeof submitActionSchema>
+
 export const submitAnswerRequestSchema = z.object({
   questionId: questionIdSchema,
-  answer: answerSchema,
+  answer: submitActionSchema,
 })
 export type SubmitAnswerRequest = z.infer<typeof submitAnswerRequestSchema>
 
@@ -97,7 +128,8 @@ export type ProfileResult = z.infer<typeof profileResultSchema>
 export const answerResultSchema = z.object({
   correct: z.boolean(),
   answer: answerSchema,
-  chosen: answerSchema,
+  /** 時間切れなら `null`（どちらも選んでいない） */
+  chosen: answerSchema.nullable(),
   pngBytes: z.number().int().positive(),
   jpegBytes: z.number().int().positive(),
   pngUrl: z.url(),
@@ -105,6 +137,8 @@ export const answerResultSchema = z.object({
   displayUrl: z.url(),
   log2Ratio: z.number(),
   awardedPoints: z.number(),
+  /** 制限時間を過ぎていたか（過ぎていれば内容によらず不正解・0 点。prd/04 §5） */
+  timedOut: z.boolean(),
   explanation: z.string().nullable(),
   source: z.record(z.string(), z.unknown()),
   /** 20 プロファイルすべての結果（prd/04 §4） */

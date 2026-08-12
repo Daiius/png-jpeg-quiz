@@ -155,9 +155,15 @@ export const sessionQuestion = mysqlTable(
     questionIndex: int('question_index').notNull(),
     questionId: varchar('question_id', { length: 64 }).notNull(),
     profileId: varchar('profile_id', { length: 32 }).notNull(),
-    /** 🔒 経過時間の基準はサーバのこの時刻（クライアント申告値は使わない） */
-    servedAt: timestamp('served_at').notNull().defaultNow(),
-    answeredAt: timestamp('answered_at'),
+    /**
+     * 🔒 経過時間の基準はサーバのこの時刻（クライアント申告値は使わない）。
+     *
+     * ⚠ **`fsp: 3` が要る。** MySQL の TIMESTAMP は既定が秒精度で、**四捨五入される**。
+     * 丸めで最大 0.5 秒未来にずれると、`elapsed_ms` が負になって
+     * 「人間に不可能な速さ」（prd/04 §5）の判定に誤って引っかかる。
+     */
+    servedAt: timestamp('served_at', { fsp: 3 }).notNull().defaultNow(),
+    answeredAt: timestamp('answered_at', { fsp: 3 }),
     answer: mysqlEnum('answer', ['png', 'jpeg']),
     isCorrect: boolean('is_correct'),
     elapsedMs: int('elapsed_ms'),
