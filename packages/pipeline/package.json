@@ -8,7 +8,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "node --experimental-strip-types src/cli.ts"
+    "build": "node --experimental-strip-types src/cli.ts",
+    "recalc": "node --experimental-strip-types src/recalc-cli.ts"
   },
   "dependencies": {
     "@jsquash/oxipng": "catalog:",
