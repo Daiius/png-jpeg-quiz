@@ -97,6 +97,9 @@ pnpm quiz:upload  # 生成アセットを R2 へ同期
 - 🔒 **`git add -A` / `git add .` を使わない。** 変更対象のパスを明示してステージし、
   `git status --short` と `git diff --cached --stat` を目視してからコミットする。
 - コミットメッセージ・PR タイトルは **Conventional Commits**（例: `docs(prd): ...`）。
+- **PR 作成は [`/create-pr`](./.claude/skills/create-pr/SKILL.md) スキルを使う**
+  （[`.github/PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST_TEMPLATE.md) の構造で本文を組み立てる）。
+  **既定は open**。ドラフトが要るときだけ `/create-pr draft`。
 - 🔒 **コミットメッセージは 3 行以内を目安とする。** それを超える長さは
   「**詳細を書き添えないと受け入れられない commit**」と受け取られる。
   本当に説明が要るなら、**その内容を PRD に追記して、コミットからは参照する**。
