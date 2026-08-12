@@ -1,7 +1,7 @@
 'use client'
 
 import type { Answer, AnswerResult, ProfileResult, QuestionView } from '@png-jpeg-quiz/quiz-core'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
  * 出題 → 2 択 → 正解画面（prd/04 §4）。
@@ -24,6 +24,8 @@ function formatBytes(bytes: number): string {
 export function QuizClient({ sessionId }: { sessionId: string }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' })
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
+  const [score, setScore] = useState(0)
 
   const loadQuestion = useCallback(async () => {
     setPhase({ kind: 'loading' })
@@ -45,6 +47,9 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
   }, [loadQuestion])
 
   async function answer(question: QuestionView, chosen: Answer) {
+    // 時間切れの自動送信とユーザーのクリックが重なることがある
+    if (submittingRef.current) return
+    submittingRef.current = true
     setSubmitting(true)
     try {
       const response = await fetch(`/api/session/${sessionId}/answer`, {
@@ -56,8 +61,11 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
         setPhase({ kind: 'error', message: `回答を送れませんでした（${response.status}）` })
         return
       }
-      setPhase({ kind: 'result', question, result: await response.json() })
+      const result: AnswerResult = await response.json()
+      setScore((current) => current + result.awardedPoints)
+      setPhase({ kind: 'result', question, result })
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -86,9 +94,20 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-sm text-slate-500">
-        第 {question.index + 1} 問 / 全 {question.total} 問（{question.category}）
-      </p>
+      <div className="flex items-baseline justify-between text-slate-500 text-sm">
+        <p>
+          第 {question.index + 1} 問 / 全 {question.total} 問（{question.category}）
+        </p>
+        <p className="tabular-nums">{score.toFixed(2)} 点</p>
+      </div>
+
+      {phase.kind === 'question' ? (
+        <Countdown
+          servedAt={question.servedAt}
+          timeLimitMs={question.timeLimitMs}
+          onTimeout={() => void answer(question, 'jpeg')}
+        />
+      ) : null}
 
       {/* display は R2 由来の外部 URL になる（M4）。next/image は挟まない */}
       <img
@@ -140,7 +159,13 @@ function ResultPanel({ result, onNext }: { result: AnswerResult; onNext: () => v
           result.correct ? 'text-xl font-bold text-green-700' : 'text-xl font-bold text-red-700'
         }
       >
-        {result.correct ? '正解' : '不正解'} — 小さいのは {winner} でした
+        {result.timedOut ? '時間切れ' : result.correct ? '正解' : '不正解'} — 小さいのは {winner}{' '}
+        でした
+        {result.awardedPoints > 0 ? (
+          <span className="ml-2 text-base text-slate-600">
+            +{result.awardedPoints.toFixed(2)} 点
+          </span>
+        ) : null}
       </p>
 
       <div className="grid grid-cols-2 gap-4">
@@ -247,5 +272,59 @@ function ProfileResultsTable({ results }: { results: readonly ProfileResult[] })
         </table>
       </div>
     </details>
+  )
+}
+
+/**
+ * 残り時間（prd/04 §5）。**表示だけ**で、判定はサーバが `served_at` 基準で行う。
+ * クライアントの時計を信用しない（prd/03 §7）。
+ */
+function Countdown({
+  servedAt,
+  timeLimitMs,
+  onTimeout,
+}: {
+  servedAt: string
+  timeLimitMs: number
+  onTimeout: () => void
+}) {
+  const [remainingMs, setRemainingMs] = useState(timeLimitMs)
+  const fired = useRef(false)
+  // ⚠ onTimeout は毎レンダリングで新しい関数になる。依存に入れると effect が再実行され、
+  // `fired` がリセットされて**同じ問題に 2 回目の回答が飛ぶ**（409 になる）。ref で逃がす。
+  const onTimeoutRef = useRef(onTimeout)
+  onTimeoutRef.current = onTimeout
+
+  useEffect(() => {
+    fired.current = false
+    const servedAtMs = new Date(servedAt).getTime()
+
+    function tick() {
+      const remaining = servedAtMs + timeLimitMs - Date.now()
+      setRemainingMs(Math.max(0, remaining))
+      if (remaining <= 0 && !fired.current) {
+        fired.current = true
+        onTimeoutRef.current()
+      }
+    }
+
+    tick()
+    const timer = setInterval(tick, 100)
+    return () => clearInterval(timer)
+  }, [servedAt, timeLimitMs])
+
+  const ratio = Math.max(0, Math.min(1, remainingMs / timeLimitMs))
+  const seconds = Math.ceil(remainingMs / 1000)
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="h-1.5 w-full overflow-hidden rounded bg-slate-200">
+        <div
+          className={ratio < 0.25 ? 'h-full bg-red-600' : 'h-full bg-slate-700'}
+          style={{ width: `${ratio * 100}%` }}
+        />
+      </div>
+      <p className="text-right text-slate-500 text-xs tabular-nums">残り {seconds} 秒</p>
+    </div>
   )
 }

@@ -1,4 +1,5 @@
 import {
+  encodeProfile,
   getDatabase,
   question,
   questionDisplayAsset,
@@ -10,11 +11,16 @@ import {
 import {
   type Answer,
   type AnswerResult,
+  classifyTiming,
   ENCODE_PROFILES,
+  findMode,
+  type PoolEntry,
   type ProfileResult,
+  QUESTION_TIME_LIMIT_MS,
   type QuestionView,
+  standard30,
 } from '@png-jpeg-quiz/quiz-core'
-import { and, asc, eq, isNull, notInArray, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { assetUrl } from './env.ts'
 import type { SessionRow } from './session.ts'
 
@@ -28,7 +34,8 @@ import type { SessionRow } from './session.ts'
 /**
  * 次の問題を選んで `session_question` に記録する。
  *
- * TODO(spec): 難易度カーブ（prd/01 §4.3）は M2。M1 は「易しい順」に出すだけ。
+ * **出題選択は `quiz-core` のモードに委ねる**（prd/02 §4-1）。
+ * ここは「DB から候補を集めて、選ばれたものを記録する」だけに留める。
  */
 export async function serveNextQuestion(row: SessionRow): Promise<QuestionView | null> {
   const database = getDatabase()
@@ -48,7 +55,12 @@ export async function serveNextQuestion(row: SessionRow): Promise<QuestionView |
   const current = served[0]
   if (current) {
     if (current.answeredAt) return null
-    return await toQuestionView(current.questionId, row.currentIndex, row.questionCount)
+    return await toQuestionView(
+      current.questionId,
+      row.currentIndex,
+      row.questionCount,
+      current.servedAt,
+    )
   }
 
   if (row.currentIndex >= row.questionCount) return null
@@ -59,41 +71,49 @@ export async function serveNextQuestion(row: SessionRow): Promise<QuestionView |
     .where(eq(sessionQuestion.sessionId, row.id))
   const usedIds = alreadyUsed.map((used) => used.questionId)
 
-  const candidates = await database
+  const pool: PoolEntry[] = await database
     .select({
       questionId: questionEncoding.questionId,
       difficulty: questionEncoding.difficulty,
+      answer: questionEncoding.answer,
     })
     .from(questionEncoding)
     .innerJoin(question, eq(question.id, questionEncoding.questionId))
-    .where(
-      and(
-        eq(questionEncoding.profileId, row.profileId),
-        eq(question.status, 'published'),
-        usedIds.length > 0 ? notInArray(questionEncoding.questionId, usedIds) : undefined,
-      ),
-    )
-    .orderBy(asc(questionEncoding.difficulty))
-    .limit(1)
+    .where(and(eq(questionEncoding.profileId, row.profileId), eq(question.status, 'published')))
+    .orderBy(asc(questionEncoding.questionId))
 
-  const picked = candidates[0]
+  const mode = findMode(row.mode) ?? standard30
+  const picked = mode.pickNext(
+    {
+      index: row.currentIndex,
+      questionCount: row.questionCount,
+      usedQuestionIds: usedIds,
+      correctCount: row.correctCount,
+      streak: row.streak,
+    },
+    pool,
+  )
   if (!picked) return null
 
+  // 🔒 出題時刻はサーバが決める。経過時間の基準になる（prd/03 §7）
+  const servedAt = new Date()
   await database.insert(sessionQuestion).values({
     sessionId: row.id,
     questionIndex: row.currentIndex,
     questionId: picked.questionId,
     profileId: row.profileId,
+    servedAt,
     difficultyAtServe: picked.difficulty,
   })
 
-  return await toQuestionView(picked.questionId, row.currentIndex, row.questionCount)
+  return await toQuestionView(picked.questionId, row.currentIndex, row.questionCount, servedAt)
 }
 
 async function toQuestionView(
   questionId: string,
   index: number,
   total: number,
+  servedAt: Date,
 ): Promise<QuestionView | null> {
   const rows = await getDatabase()
     .select({
@@ -114,6 +134,8 @@ async function toQuestionView(
     questionId: row.id,
     index,
     total,
+    timeLimitMs: QUESTION_TIME_LIMIT_MS,
+    servedAt: servedAt.toISOString(),
     displayUrl: assetUrl(row.objectKey),
     width: row.width,
     height: row.height,
@@ -125,6 +147,7 @@ export type SubmitOutcome =
   | { status: 'ok'; result: AnswerResult }
   | { status: 'not-current' }
   | { status: 'already-answered' }
+  | { status: 'too-fast' }
 
 /**
  * 回答の受付と採点。
@@ -168,11 +191,35 @@ export async function submitAnswer(
   const encoding = encodingRows[0]
   if (!encoding) return { status: 'not-current' }
 
-  const correct = encoding.answer === chosen
   const elapsedMs = Date.now() - served.servedAt.getTime()
+  const timing = classifyTiming(elapsedMs)
+  // 🔒 人間に不可能な速さは受け付けない（prd/04 §5 / T6）
+  if (timing === 'too-fast') return { status: 'too-fast' }
 
-  // TODO(spec): 得点は M2（prd/06 §1 のサプライザル方式）。M1 は正解 1 点で通す
-  const awardedPoints = correct ? 1 : 0
+  // 🔒 時間切れは不正解扱い（prd/04 §5）。選んだ内容によらず 0 点
+  const timedOut = timing === 'timed-out'
+  const correct = !timedOut && encoding.answer === chosen
+
+  // 得点はサプライザル方式（prd/06 §1）。🔒 実測正答率は混ぜない
+  const profileRows = await database
+    .select({ pngWinRate: encodeProfile.pngWinRate })
+    .from(encodeProfile)
+    .where(eq(encodeProfile.id, row.profileId))
+    .limit(1)
+  const pngWinRate = profileRows[0]?.pngWinRate ?? 0
+
+  const mode = findMode(row.mode) ?? standard30
+  const awardedPoints =
+    correct && pngWinRate > 0 && pngWinRate < 1
+      ? mode.score({
+          correct,
+          answer: encoding.answer,
+          difficulty: encoding.difficulty,
+          pngWinRate,
+        })
+      : // プールが片方に寄りきっていると -log2(0) が発散する。
+        // その条件は出題対象から外してあるが、保険として 0 点にする（例外にはしない）
+        0
   const nextIndex = row.currentIndex + 1
   const streak = correct ? row.streak + 1 : 0
 
@@ -293,6 +340,7 @@ export async function submitAnswer(
       displayUrl: assetUrl(detail?.displayKey ?? ''),
       log2Ratio: encoding.log2Ratio,
       awardedPoints,
+      timedOut,
       explanation: detail?.explanation ?? null,
       source: (detail?.source ?? {}) as Record<string, unknown>,
       profileResults,

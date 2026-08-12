@@ -26,5 +26,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (outcome.status === 'already-answered') {
     return NextResponse.json({ error: 'already answered' }, { status: 409 })
   }
+  // 🔒 人間に不可能な速さ（prd/04 §5 / T6）
+  if (outcome.status === 'too-fast') {
+    return NextResponse.json({ error: 'too fast' }, { status: 429 })
+  }
   return NextResponse.json(outcome.result)
 }
