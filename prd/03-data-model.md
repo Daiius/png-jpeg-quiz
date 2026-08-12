@@ -89,12 +89,13 @@ encode_profile ──< question_encoding >── question ──── question_
 | `id` | varchar (PK) | **暗号学的乱数**（非 null の代理キー） |
 | `question_id` / `profile_id` / `kind`(`png`\|`jpeg`) | | **この 3 列に UNIQUE 制約** |
 | `object_key` | varchar | 🔒 **乱数由来**。`question_id` / `profile_id` / display のキーから**導出できてはならない** |
-| `bytes` / `content_type` / `sha256` | | |
+| `bytes` / `content_type` / `sha256` | nullable | キー予約の時点では未確定。成果物の生成後に埋める |
+| `uploaded_at` | timestamp \| null | R2 への同期が完了した時刻。**null = 未アップロード**（再実行で解決する） |
 
 - ⚠ **`object_key` を内容ハッシュにしてはいけない。** 出題画像（可逆 WebP）からピクセルは復元できるので、
   同じ手順で PNG を作ればハッシュが計算でき、回答前にキーを言い当てられる。
-- **このテーブルがキーの正**。再ビルド時は `(question_id, profile_id, kind)` で既存行を引いて
-  キーを再利用し、無いときだけ発行する（[05](./05-content-pipeline.md) §2）。
+- **このテーブルがキーの唯一の正**。キーの発行は必ず DB への行作成が先で、
+  同期は成果物と `object_key` の全件一致を前提条件とする（[05](./05-content-pipeline.md) §2）。
 - ⚠ MySQL の主キー列は暗黙に NOT NULL になるため、**nullable な `profile_id` を PK に含めない**
   （テーブルを分けたのはこの制約も理由の一つ）。
 - `bytes` は `question_encoding` にも冗長に持つ（出題クエリで JOIN しないため）。
