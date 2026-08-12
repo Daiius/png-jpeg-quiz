@@ -72,6 +72,27 @@ export const submitAnswerRequestSchema = z.object({
 })
 export type SubmitAnswerRequest = z.infer<typeof submitAnswerRequestSchema>
 
+/**
+ * 「他の条件ならどうなるか」（prd/04 §4）。
+ * **20 プロファイルすべての結果**を回答後に開示し、条件で答えが変わることを実演する。
+ *
+ * 🔒 `difficulty` は含めない。バイト数は出すが、**難易度の数値そのものは値として渡さない**
+ * （他の問題の出題前に効いてくる可能性を避ける。prd/04 §3.5）。
+ */
+export const profileResultSchema = z.object({
+  profileId: profileIdSchema,
+  jpegQuality: z.number().int(),
+  chromaSubsampling: z.string(),
+  pngOptimize: z.boolean(),
+  pngBytes: z.number().int().positive(),
+  jpegBytes: z.number().int().positive(),
+  answer: answerSchema,
+  isStandard: z.boolean(),
+  /** このセッションで選んでいる条件か */
+  isSelected: z.boolean(),
+})
+export type ProfileResult = z.infer<typeof profileResultSchema>
+
 /** 回答後は全部見せる（prd/04 §4）。ここは意図的に開示側。 */
 export const answerResultSchema = z.object({
   correct: z.boolean(),
@@ -86,6 +107,8 @@ export const answerResultSchema = z.object({
   awardedPoints: z.number(),
   explanation: z.string().nullable(),
   source: z.record(z.string(), z.unknown()),
+  /** 20 プロファイルすべての結果（prd/04 §4） */
+  profileResults: z.array(profileResultSchema),
   hasNext: z.boolean(),
 })
 export type AnswerResult = z.infer<typeof answerResultSchema>

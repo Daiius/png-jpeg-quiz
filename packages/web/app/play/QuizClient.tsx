@@ -1,6 +1,6 @@
 'use client'
 
-import type { Answer, AnswerResult, QuestionView } from '@png-jpeg-quiz/quiz-core'
+import type { Answer, AnswerResult, ProfileResult, QuestionView } from '@png-jpeg-quiz/quiz-core'
 import { useCallback, useEffect, useState } from 'react'
 
 /**
@@ -165,6 +165,8 @@ function ResultPanel({ result, onNext }: { result: AnswerResult; onNext: () => v
         {result.explanation ? ` — ${result.explanation}` : ''}
       </p>
 
+      <ProfileResultsTable results={result.profileResults} />
+
       <details className="text-sm text-slate-600">
         <summary className="cursor-pointer">出典とライセンス</summary>
         <pre className="mt-2 overflow-x-auto rounded bg-slate-50 p-3 text-xs">
@@ -184,5 +186,66 @@ function ResultPanel({ result, onNext }: { result: AnswerResult; onNext: () => v
         {result.hasNext ? '次の問題へ' : '結果を見る'}
       </button>
     </div>
+  )
+}
+
+/**
+ * 「他の条件ならどうなるか」（prd/04 §4）。**条件で答えが変わることの実演**が主目的なので、
+ * 答えが反転している行が目で追えるようにする。
+ */
+function ProfileResultsTable({ results }: { results: readonly ProfileResult[] }) {
+  if (results.length === 0) return null
+  const flipped = new Set(
+    results
+      .filter((r) => r.answer !== results.find((x) => x.isSelected)?.answer)
+      .map((r) => r.profileId),
+  )
+
+  return (
+    <details className="text-sm">
+      <summary className="cursor-pointer text-slate-600">
+        他の条件ならどうなるか（{results.length} 通り
+        {flipped.size > 0 ? ` — うち ${flipped.size} 通りで答えが変わる` : ''}）
+      </summary>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr className="border-slate-300 border-b text-left">
+              <th className="py-1 pr-3 font-medium">条件</th>
+              <th className="py-1 pr-3 font-medium text-right">PNG</th>
+              <th className="py-1 pr-3 font-medium text-right">JPEG</th>
+              <th className="py-1 font-medium">小さいのは</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.map((row) => (
+              <tr
+                key={row.profileId}
+                className={
+                  row.isSelected
+                    ? 'border-slate-200 border-b bg-amber-50 font-medium'
+                    : 'border-slate-200 border-b'
+                }
+              >
+                <td className="py-1 pr-3 font-mono">
+                  {row.profileId}
+                  {row.isStandard ? <span className="ml-1 text-slate-500">（標準）</span> : null}
+                  {row.isSelected ? <span className="ml-1 text-amber-700">← 今回</span> : null}
+                </td>
+                <td className="py-1 pr-3 text-right tabular-nums">
+                  {row.pngBytes.toLocaleString('ja-JP')}
+                </td>
+                <td className="py-1 pr-3 text-right tabular-nums">
+                  {row.jpegBytes.toLocaleString('ja-JP')}
+                </td>
+                <td className={flipped.has(row.profileId) ? 'py-1 text-red-700' : 'py-1'}>
+                  {row.answer === 'png' ? 'PNG' : 'JPEG'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   )
 }

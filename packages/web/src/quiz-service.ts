@@ -7,7 +7,13 @@ import {
   session,
   sessionQuestion,
 } from '@png-jpeg-quiz/database'
-import type { Answer, AnswerResult, QuestionView } from '@png-jpeg-quiz/quiz-core'
+import {
+  type Answer,
+  type AnswerResult,
+  ENCODE_PROFILES,
+  type ProfileResult,
+  type QuestionView,
+} from '@png-jpeg-quiz/quiz-core'
 import { and, asc, eq, isNull, notInArray, sql } from 'drizzle-orm'
 import { assetUrl } from './env.ts'
 import type { SessionRow } from './session.ts'
@@ -233,6 +239,35 @@ export async function submitAnswer(
     throw new Error(`回答用アセットが揃っていない: ${questionId} / ${row.profileId}`)
   }
 
+  // 「他の条件ならどうなるか」（prd/04 §4）。回答後なので開示してよい
+  const allEncodings = await database
+    .select({
+      profileId: questionEncoding.profileId,
+      pngBytes: questionEncoding.pngBytes,
+      jpegBytes: questionEncoding.jpegBytes,
+      answer: questionEncoding.answer,
+    })
+    .from(questionEncoding)
+    .where(eq(questionEncoding.questionId, questionId))
+
+  const profileResults: ProfileResult[] = ENCODE_PROFILES.flatMap((profile) => {
+    const found = allEncodings.find((row) => row.profileId === profile.id)
+    if (!found) return []
+    return [
+      {
+        profileId: profile.id,
+        jpegQuality: profile.jpegQuality,
+        chromaSubsampling: profile.chromaSubsampling,
+        pngOptimize: profile.pngOptimize,
+        pngBytes: found.pngBytes,
+        jpegBytes: found.jpegBytes,
+        answer: found.answer,
+        isStandard: profile.isStandard,
+        isSelected: profile.id === row.profileId,
+      },
+    ]
+  })
+
   const details = await database
     .select({
       explanation: question.explanation,
@@ -260,6 +295,7 @@ export async function submitAnswer(
       awardedPoints,
       explanation: detail?.explanation ?? null,
       source: (detail?.source ?? {}) as Record<string, unknown>,
+      profileResults,
       hasNext: nextIndex < row.questionCount,
     },
   }

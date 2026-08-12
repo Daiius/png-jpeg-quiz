@@ -14,6 +14,8 @@ export {
   type CreateSessionResponse,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  type ProfileResult,
+  profileResultSchema,
   type QuestionCategory,
   type QuestionResponse,
   type QuestionView,
