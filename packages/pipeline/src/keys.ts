@@ -125,16 +125,33 @@ export async function reserveOverlayKey(
 
   const found = existing[0]
   if (found) {
-    // 版が変わっていたら中身を作り直す。⚠ **キーは変えない**
-    // （immutable キャッシュで配った URL の中身が入れ替わるのを避けるためではなく、
-    //   予約済みキーの唯一性を保つため。中身の差し替えは版の記録で追える）
-    if (found.rendererVersion !== input.rendererVersion) {
-      await database
-        .update(questionOverlayAsset)
-        .set({ rendererVersion: input.rendererVersion, uploadedAt: null })
-        .where(eq(questionOverlayAsset.id, found.id))
+    if (found.rendererVersion === input.rendererVersion) {
+      return { id: found.id, objectKey: found.objectKey }
     }
-    return { id: found.id, objectKey: found.objectKey }
+
+    /**
+     * 🔒 **版が変わったら新しいキーを発行する。同じ URL の中身を差し替えない。**
+     *
+     * アセットは immutable キャッシュ前提で配る（prd/02 §5）。既存の URL の中身を入れ替えると、
+     * CDN やブラウザに残った旧画像が配られ続ける一方で **DB は新しい `renderer_version` と
+     * `sha256` を指す**ことになり、表示と記録が食い違う。
+     *
+     * 旧キーのオブジェクトは**消さずに残す**（既にキャッシュしている利用者のため）。
+     * DB から参照されなくなるので、孤児掃除コマンドが後から回収する（prd/05 §2）。
+     */
+    const rekeyed = `overlay/${randomBytes(24).toString('base64url')}.webp`
+    await database
+      .update(questionOverlayAsset)
+      .set({
+        objectKey: rekeyed,
+        rendererVersion: input.rendererVersion,
+        // 中身はこれから作り直す。古い実測値を残さない
+        bytes: null,
+        sha256: null,
+        uploadedAt: null,
+      })
+      .where(eq(questionOverlayAsset.id, found.id))
+    return { id: found.id, objectKey: rekeyed }
   }
 
   const reserved: ReservedKey = {

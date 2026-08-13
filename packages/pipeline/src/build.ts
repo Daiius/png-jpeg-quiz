@@ -124,7 +124,7 @@ async function buildOne(
       derivation,
       source: asset.meta.source,
       explanation: asset.meta.explanation ?? null,
-      // status は最後に決める（20 プロファイルが揃って初めて published にする）
+      // status は最後に決める（20 プロファイルとオーバーレイが揃って初めて published にする）
     })
     .onDuplicateKeyUpdate({
       set: {
@@ -137,6 +137,15 @@ async function buildOne(
         derivation,
         source: asset.meta.source,
         explanation: asset.meta.explanation ?? null,
+        /**
+         * 🔒 **再生成に入る前に `draft` へ落とす。**
+         *
+         * アセットは 1 枚ずつ更新するので、途中で例外やプロセス停止が起きると
+         * **不完全なまま・`renderer_version` が混ざったまま `published` で配信され続ける**。
+         * 先に降ろしておけば、最悪でも「出題されない」で止まる。
+         * 揃ったかどうかはこの関数の末尾で確かめて、そこで初めて `published` に戻す。
+         */
+        status: 'draft',
       },
     })
 
