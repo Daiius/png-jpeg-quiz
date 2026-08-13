@@ -44,8 +44,9 @@ const ATTRIBUTION_FREE_LICENSES: ReadonlySet<string> = new Set([
   'CC0 1.0',
   'CC0 1.0 UNIVERSAL',
   'PUBLIC DOMAIN',
-  'OPENAI 出力',
-  '自作',
+  // ⚠ **注記込みで、そのまま**書く。注記を剥がして比べると
+  // `CC0（MIT も含む）` のような表記が `CC0` として通ってしまう
+  'OPENAI 出力（生成者に権利帰属）',
 ])
 
 /**
@@ -56,14 +57,10 @@ const ATTRIBUTION_FREE_LICENSES: ReadonlySet<string> = new Set([
  * 「分からないから公開してよい」にすると、表記が増えたときに黙って漏れる。
  */
 export function requiresAttribution(license: string): boolean {
-  const normalized = license
-    .trim()
-    .toUpperCase()
-    // 末尾の注記だけは落とす（「OpenAI 出力（生成者に権利帰属）」の括弧部分）。
-    // ⚠ 落とすのは**末尾の 1 つだけ**。中間に現れる注記は表記の一部として扱う
-    .replace(/[（(][^（()）]*[)）]\s*$/, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  // ⚠ **注記を剥がさない。** 括弧の中に別のライセンスや追加条件が書かれていても、
+  // 落としてしまえば許可リストを素通りする（`CC0（MIT も含む）` → `CC0`）。
+  // 正規化は**空白の詰めと大文字化だけ**にとどめる
+  const normalized = license.trim().replace(/\s+/g, ' ').toUpperCase()
 
   return !ATTRIBUTION_FREE_LICENSES.has(normalized)
 }

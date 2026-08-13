@@ -19,7 +19,6 @@ describe('requiresAttribution', () => {
     'cc0 1.0 universal',
     'OpenAI 出力（生成者に権利帰属）',
     'Public Domain',
-    '自作（CC0 相当）',
     '  CC0  ',
   ])('帰属が要らない: %s', (license) => {
     expect(requiresAttribution(license)).toBe(false)
@@ -52,7 +51,19 @@ describe('requiresAttribution', () => {
     'OpenAI MIT',
     'CC0 1.0 with additional terms',
     '自作 だが Apache-2.0 部分を含む',
-  ])('複合表記は帰属必須に倒す: %s', (license) => {
+    // ⚠ 末尾の注記を剥がして比べると素通りしてしまう形（bot の再指摘）
+    'CC0（MIT も含む）',
+    'CC0（追加条件あり）',
+    'Public Domain (with attribution requested)',
+    // 注記のない「自作」は許可リストに入れていない（実在しない表記を先回りで許可しない）
+    '自作',
+    '自作（CC0 相当）',
+  ])('複合表記・注記つきは帰属必須に倒す: %s', (license) => {
     expect(requiresAttribution(license)).toBe(true)
+  })
+
+  // 実際に `meta.json` にある表記が帰属不要と判定されること（許可リストの回帰）
+  it.each(['CC0', 'OpenAI 出力（生成者に権利帰属）'])('実在する表記は帰属不要: %s', (license) => {
+    expect(requiresAttribution(license)).toBe(false)
   })
 })
