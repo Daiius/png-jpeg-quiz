@@ -30,7 +30,7 @@
 - **`effort` を明示しないと 4 倍のサイズになる。** `compressionLevel` はほとんど効かない。
 - `palette: false` を明示すると `effort` の指定が無視される（明示しないのと同じ結果になる）。
 - → パイプラインでは **`effort` を必ず明示**し、生成物のバイト数を CI で監視する
-  （[05](../05-content-pipeline.md) §6）。
+  （[05](../05-content-pipeline.md) §7）。
 
 ## 2. PNG の最適化強度と、答えの反転
 
