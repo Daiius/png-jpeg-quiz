@@ -10,6 +10,7 @@ import {
   staticDifficulty,
 } from '@png-jpeg-quiz/quiz-core'
 import sharp from 'sharp'
+import type { RawImage } from './metrics.ts'
 import { type NormalizedImage, toSharp } from './normalize.ts'
 
 /**
@@ -64,6 +65,35 @@ export async function encodePng(image: NormalizedImage, profile: EncodeProfile):
     optimiseAlpha: false,
   })
   return Buffer.from(optimized)
+}
+
+/**
+ * JPEG を復号して生ピクセルに戻す（劣化の計測に使う。prd/05 §6）。
+ * ⚠ **リサイズしない。** 原寸で計算し、原寸で書き出す。
+ */
+export async function decodeToRaw(bytes: Buffer): Promise<RawImage> {
+  const { data, info } = await sharp(bytes)
+    .toColorspace('srgb')
+    .removeAlpha()
+    .raw({ depth: 'uchar' })
+    .toBuffer({ resolveWithObject: true })
+  return { data, width: info.width, height: info.height, channels: info.channels }
+}
+
+/**
+ * 劣化オーバーレイの書き出し。
+ *
+ * **可逆ではなく WebP の非可逆**（品質 90）で配る。オーバーレイは
+ * 「どこがどれだけ壊れたか」を示す**可視化であって証拠画像ではない**（証拠は PNG / JPEG の実物）。
+ * 可逆にすると写真由来のグレー面がそのまま残って数百 KB になり、
+ * prd/03 §5.3 の想定（1 枚 4〜46 KB・1 問 1 MB 弱）から外れる。
+ *
+ * 🔒 この選択は `RENDERER_VERSION` の一部。変えたら版を上げる。
+ */
+export async function encodeOverlay(rgb: Buffer, width: number, height: number): Promise<Buffer> {
+  return await sharp(rgb, { raw: { width, height, channels: 3 } })
+    .webp({ quality: 90, effort: 4 })
+    .toBuffer()
 }
 
 export async function encodeJpeg(image: NormalizedImage, profile: EncodeProfile): Promise<Buffer> {
