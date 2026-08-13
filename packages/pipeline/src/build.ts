@@ -243,15 +243,23 @@ async function guardToolVersions(database: Database, profileIds: readonly string
  * 素材を消したことが出題に反映されないと、**採らないと決めた素材が配られ続ける。**
  *
  * TODO(spec): prd/05 に「素材を取り下げたときの手順」が無い。最小の実装として、
- * **全素材を対象にしたビルドのときだけ**、現在の素材集合に無い `published` を `retired` にする。
- * `--only` で絞ったビルドでは対象外の問題まで巻き込むので何もしない。
+ * **全素材を対象にしたビルドのときだけ**、現在の素材から作られる `question.id` の集合に
+ * 無い `published` を `retired` にする。`--only` で絞ったビルドでは何もしない。
+ *
+ * 🔑 **素材名ではなく `question.id`（内容ハッシュ由来）で判定する。**
+ * 素材名で見ると、**同じファイル名のまま中身を差し替えた**ときに取り下げが漏れる
+ * （新しい内容ハッシュで別の問題が作られる一方、旧問題は名前が残っているので生き延びる）。
+ * 不適格と分かった画像を同名で置き換える運用は普通にありうる。
+ *
+ * ⚠ **`derivation.sourceName` を持たない行は触らない。** 合成問題（prd/05 §4）など、
+ * `assets/source/` に対応する素材が無い問題を巻き込まないため。
  *
  * ⚠ **アセットは消さない。** 過去のセッションが参照した URL を壊さないため。
  * R2 側の掃除は孤児掃除コマンドの担当（prd/05 §2）。
  */
 async function retireRemovedSources(
   database: Database,
-  sourceNames: ReadonlySet<string>,
+  currentQuestionIds: ReadonlySet<string>,
 ): Promise<string[]> {
   const rows = await database
     .select({ id: question.id, derivation: question.derivation })
@@ -261,8 +269,7 @@ async function retireRemovedSources(
   const retired: string[] = []
   for (const row of rows) {
     const name = (row.derivation as { sourceName?: unknown } | null)?.sourceName
-    // 素材名が取れない行は判断できないので触らない（誤って取り下げるより残す）
-    if (typeof name !== 'string' || sourceNames.has(name)) continue
+    if (typeof name !== 'string' || currentQuestionIds.has(row.id)) continue
     await database.update(question).set({ status: 'retired' }).where(eq(question.id, row.id))
     retired.push(name)
   }
@@ -298,12 +305,13 @@ export async function build(options: BuildOptions): Promise<BuildSummary> {
 
   // 🔒 素材を絞ったビルドでは判断できない（対象外の素材が「消えた」ように見える）
   if (!options.only?.length) {
+    // ⚠ `targets` ではなく `sources` 全件から作る（同点で採用しなかった素材まで巻き込まないため）
     summary.retired = await retireRemovedSources(
       database,
-      new Set(sources.map((asset) => asset.name)),
+      new Set(sources.map((asset) => questionIdFor(asset.contentHash))),
     )
     for (const name of summary.retired) {
-      console.log(`  ⊖ retired ${name}（素材が assets/source から消えている）`)
+      console.log(`  ⊖ retired ${name}（現在の素材から作られる問題ではない）`)
     }
   }
 
