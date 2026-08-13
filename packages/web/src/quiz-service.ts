@@ -5,21 +5,25 @@ import {
   questionDisplayAsset,
   questionEncodedAsset,
   questionEncoding,
+  questionOverlayAsset,
   session,
   sessionQuestion,
 } from '@png-jpeg-quiz/database'
 import {
   type Answer,
   type AnswerResult,
+  CHROMA_SUBSAMPLINGS,
   classifyTiming,
   ENCODE_PROFILES,
   findMode,
+  JPEG_QUALITIES,
   type PoolEntry,
   type ProfileResult,
   QUESTION_TIME_LIMIT_MS,
   type QuestionView,
   type SubmitAction,
   standard30,
+  type VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { assetUrl } from './env.ts'
@@ -333,6 +337,59 @@ export async function submitAnswer(
     ]
   })
 
+  // 検証ビュー（prd/04 §4.1）。🔒 回答後なので開示してよい
+  const overlays = await database
+    .select({
+      jpegQuality: questionOverlayAsset.jpegQuality,
+      chromaSubsampling: questionOverlayAsset.chromaSubsampling,
+      metric: questionOverlayAsset.metric,
+      objectKey: questionOverlayAsset.objectKey,
+    })
+    .from(questionOverlayAsset)
+    .where(eq(questionOverlayAsset.questionId, questionId))
+
+  const scalarRows = await database
+    .select({
+      profileId: questionEncoding.profileId,
+      over2Pct: questionEncoding.de00Over2Pct,
+    })
+    .from(questionEncoding)
+    .where(eq(questionEncoding.questionId, questionId))
+
+  const verification: VerificationView[] = []
+  for (const quality of JPEG_QUALITIES) {
+    for (const subsampling of CHROMA_SUBSAMPLINGS) {
+      const de00 = overlays.find(
+        (row) =>
+          row.jpegQuality === quality &&
+          row.chromaSubsampling === subsampling &&
+          row.metric === 'de00',
+      )
+      const ssim = overlays.find(
+        (row) =>
+          row.jpegQuality === quality &&
+          row.chromaSubsampling === subsampling &&
+          row.metric === 'ssim',
+      )
+      // 片方でも欠けている条件は出さない（片肺の検証ビューは誤読を招く）
+      if (!de00 || !ssim) continue
+
+      // スカラーはどのプロファイルでも同じ（PNG 最適化は JPEG を変えない）
+      const anyProfile = ENCODE_PROFILES.find(
+        (profile) => profile.jpegQuality === quality && profile.chromaSubsampling === subsampling,
+      )
+      const scalar = scalarRows.find((row) => row.profileId === anyProfile?.id)
+
+      verification.push({
+        jpegQuality: quality,
+        chromaSubsampling: subsampling,
+        over2Pct: scalar?.over2Pct ?? null,
+        de00Url: assetUrl(de00.objectKey),
+        ssimUrl: assetUrl(ssim.objectKey),
+      })
+    }
+  }
+
   const details = await database
     .select({
       explanation: question.explanation,
@@ -362,6 +419,7 @@ export async function submitAnswer(
       explanation: detail?.explanation ?? null,
       source: (detail?.source ?? {}) as Record<string, unknown>,
       profileResults,
+      verification,
       hasNext: nextIndex < row.questionCount,
     },
   }
