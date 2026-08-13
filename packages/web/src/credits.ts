@@ -26,23 +26,35 @@ export interface CreditGroup {
 }
 
 /**
- * 🔒 **帰属義務のあるライセンス**（prd/05 §1.1）。
+ * 🔒 **帰属不要と認めるライセンス表記の許可リスト**（prd/05 §1.1）。
+ *
+ * ⚠ **部分一致で「帰属不要」に倒さない。** `MIT / generated with OpenAI` のような複合表記が
+ * 「OpenAI を含むから帰属不要」と判定されると、MIT の表示義務を落としたまま公開してしまう。
+ * **先頭からの一致だけを認める。**
+ */
+const ATTRIBUTION_FREE_PREFIXES = [/^CC0\b/, /^PUBLIC DOMAIN\b/, /^OPENAI\b/, /^自作/] as const
+
+/** 複合表記の目印。1 つでもあれば、片方が帰属必須かもしれないので安全側に倒す */
+const COMPOSITE_MARKERS = ['/', '+', ',', '、', 'および', 'かつ', 'AND '] as const
+
+/**
+ * 🔒 **帰属義務のあるライセンスか**（prd/05 §1.1）。
  * これが公開プールに 1 点でも残っていたら公開してはいけない（prd/05 §1.4, §7）。
  *
- * ⚠ **表記ゆれに強い形で判定する。** `meta.json` の `license` は自由文字列なので、
- * 「CC BY 4.0」「CC BY-SA 4.0」のような接頭辞で拾う。
- * 判定できないものは**安全側**（帰属必須）に倒す。
+ * `meta.json` の `license` は自由文字列なので、**判定できないものは安全側**（帰属必須）に倒す。
+ * 「分からないから公開してよい」にすると、表記が増えたときに黙って漏れる。
+ *
+ * ⚠ **恒久的には、ライセンスを自由文字列ではなく種別の enum に分けるべき**
+ * （`TODO(spec):` prd/05 §1.1 に種別の一覧が無い）。ここは自由文字列に対する防波堤。
  */
 export function requiresAttribution(license: string): boolean {
   const normalized = license.trim().toUpperCase()
-  if (normalized.startsWith('CC0')) return false
-  if (normalized.startsWith('CC BY')) return true
-  // 帰属不要と分かっているもの（AI 生成 / パブリックドメイン / 自作）以外は安全側に倒す
-  return !(
-    normalized.includes('OPENAI') ||
-    normalized.includes('PUBLIC DOMAIN') ||
-    normalized.includes('自作')
-  )
+
+  // 帰属必須の目印が混ざっていたら、どこに現れても帰属必須
+  if (normalized.includes('CC BY')) return true
+  if (COMPOSITE_MARKERS.some((marker) => normalized.includes(marker))) return true
+
+  return !ATTRIBUTION_FREE_PREFIXES.some((pattern) => pattern.test(normalized))
 }
 
 interface SourceJson {
@@ -63,7 +75,7 @@ function asString(value: unknown): string | null {
  */
 export async function loadCredits(): Promise<CreditGroup[]> {
   const rows = await getDatabase()
-    .select({ source: question.source, isSynthetic: question.isSynthetic })
+    .select({ source: question.source, isAiGenerated: question.isAiGenerated })
     .from(question)
     .where(eq(question.status, 'published'))
 
@@ -72,7 +84,8 @@ export async function loadCredits(): Promise<CreditGroup[]> {
     const source = (row.source ?? {}) as SourceJson
     const site = asString(source.site) ?? '不明'
     const license = asString(source.license) ?? '不明'
-    const key = `${site} :: ${license}`
+    // AI 生成の別も束ねる鍵に含める（同じ出典・同じライセンスでも別に数えるべきもの）
+    const key = `${site} :: ${license} :: ${row.isAiGenerated}`
 
     const existing = groups.get(key)
     const author = asString(source.author)
@@ -85,9 +98,8 @@ export async function loadCredits(): Promise<CreditGroup[]> {
       site,
       license,
       licenseUrl: asString(source.license_url),
-      // `is_ai_generated` は meta.json のフラグだが、DB には持っていない。
-      // 出典サイトで判断する（生成サービス名が入っている）
-      isAiGenerated: /openai|chatgpt|生成/i.test(site),
+      // 🔒 **`meta.json` の宣言が唯一の根拠。** サイト名から推測しない（prd/05 §1.1）
+      isAiGenerated: row.isAiGenerated,
       authors: author ? [author] : [],
       count: 1,
     })

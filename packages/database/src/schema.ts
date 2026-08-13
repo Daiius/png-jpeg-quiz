@@ -56,7 +56,16 @@ export const question = mysqlTable('question', {
   /** 隣接ペアのうち RGB が完全一致する割合（prd/05 §3.1） */
   flatRatio: double('flat_ratio').notNull(),
   tags: json('tags').notNull(),
+  /** 🔑 **「合成問題」**（prd/05 §4 の意地悪問題）かどうか。AI 生成の別とは別物 */
   isSynthetic: boolean('is_synthetic').notNull().default(false),
+  /**
+   * 生成 AI で作られた素材か（`meta.json` の `is_ai_generated`）。
+   *
+   * 🔒 **開示義務がある**（prd/05 §1.1。人間作と偽らない）。`/credits` はこれを唯一の根拠にする。
+   * ⚠ **出典サイト名から推測しない。** 表記が変わった瞬間に黙って開示が落ちる。
+   * ⚠ **`is_synthetic` と混同しない。** あちらは「際どい問題として合成したか」。
+   */
+  isAiGenerated: boolean('is_ai_generated').notNull().default(false),
   derivation: json('derivation'),
   source: json('source').notNull(),
   explanation: text('explanation'),

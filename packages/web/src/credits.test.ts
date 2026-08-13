@@ -32,4 +32,21 @@ describe('requiresAttribution', () => {
       expect(requiresAttribution(license)).toBe(true)
     },
   )
+
+  /**
+   * 🔒 **部分一致で「帰属不要」に倒さない。**
+   * `MIT / generated with OpenAI` が「OpenAI を含むから帰属不要」になると、
+   * MIT の表示義務を落としたまま公開してしまう。
+   */
+  it.each([
+    'MIT / generated with OpenAI',
+    'CC0 / CC BY 4.0',
+    'Public Domain および CC BY-SA 4.0',
+    '自作 + Apache-2.0',
+    'CC0, MIT',
+    'CC0 and MIT',
+    '独自ライセンス（Public Domain ではない）',
+  ])('複合表記は帰属必須に倒す: %s', (license) => {
+    expect(requiresAttribution(license)).toBe(true)
+  })
 })

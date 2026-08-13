@@ -1,0 +1,1 @@
+ALTER TABLE `question` ADD `is_ai_generated` boolean DEFAULT false NOT NULL;
