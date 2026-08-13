@@ -51,10 +51,16 @@ packages/
   quiz-core/  # 【フレームワーク非依存】モード定義・出題選択・採点・得点計算・Zod スキーマ
   database/   # Drizzle スキーマ・マイグレーション・DB クライアント・seed
   pipeline/   # 素材 → エンコード → 正解確定 → アセット生成（オフライン専用。05）
+              #   劣化指標（ΔE00 / SSIM）と検証ビューのオーバーレイ描画もここ
   web/        # Next.js（App Router）。UI + Route Handlers
 ```
 
 依存方向: `quiz-core` ← `database` ← `web` / `pipeline`（`quiz-core` は最上流で他に依存しない）
+
+> 🔑 **劣化指標を `quiz-core` に置かない。** ΔE00 / SSIM はフレームワーク非依存の純関数なので
+> 置けてしまうが、`quiz-core` は**実行時に web が読む**パッケージであり、
+> 出題・採点の語彙に閉じておきたい。**画像を触るものは実行時に持ち込まない**（§1）という
+> 線引きにも合うので、`pipeline/` 側に置く（[05](./05-content-pipeline.md) §6）。
 
 > **Vite+Hono 版（Phase 2）** は `packages/web-vite` + `packages/server-hono` を足す形で載る。
 > `quiz-core` と `database` はそのまま共有される。
