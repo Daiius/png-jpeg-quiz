@@ -10,6 +10,7 @@ export {
   questionDisplayAsset,
   questionEncodedAsset,
   questionEncoding,
+  questionOverlayAsset,
   questionStats,
   schema,
   scoreEntry,

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { type Database, questionEncodedAsset } from '@png-jpeg-quiz/database'
+import { type Database, questionEncodedAsset, questionOverlayAsset } from '@png-jpeg-quiz/database'
 import { and, eq } from 'drizzle-orm'
+import type { OverlayMetric } from './degradation.ts'
 
 /**
  * 回答用アセットのキー発行（prd/05 §2「キーの発行と再利用」）。
@@ -81,6 +82,83 @@ export async function recordEncodedAsset(
   values: { bytes: number; sha256: string; contentType: string },
 ): Promise<void> {
   await database.update(questionEncodedAsset).set(values).where(eq(questionEncodedAsset.id, id))
+}
+
+/**
+ * 劣化オーバーレイのキー（prd/03 §5.3）。
+ *
+ * 🔒 **`question_encoded_asset` と同じ乱数方式。** 劣化量は素材の性質と相関し、
+ * 素材の性質は答えと相関するので、導出可能なキーにしてはいけない（prd/04 §4.1）。
+ *
+ * 🔑 **`profile_id` ではなく `(jpeg_quality, chroma_subsampling, metric)` で持つ。**
+ * PNG 最適化の有無は JPEG を変えないので、オーバーレイも変わらない（20 通りではなく 10 通り）。
+ */
+export interface OverlayKeyInput {
+  questionId: string
+  jpegQuality: number
+  chromaSubsampling: string
+  metric: OverlayMetric
+  /** 🔒 配色・上限・合成方法の版。変わったら作り直す（prd/05 §6） */
+  rendererVersion: string
+}
+
+export async function reserveOverlayKey(
+  database: Database,
+  input: OverlayKeyInput,
+): Promise<ReservedKey> {
+  const existing = await database
+    .select({
+      id: questionOverlayAsset.id,
+      objectKey: questionOverlayAsset.objectKey,
+      rendererVersion: questionOverlayAsset.rendererVersion,
+    })
+    .from(questionOverlayAsset)
+    .where(
+      and(
+        eq(questionOverlayAsset.questionId, input.questionId),
+        eq(questionOverlayAsset.jpegQuality, input.jpegQuality),
+        eq(questionOverlayAsset.chromaSubsampling, input.chromaSubsampling as '4:2:0' | '4:4:4'),
+        eq(questionOverlayAsset.metric, input.metric),
+      ),
+    )
+    .limit(1)
+
+  const found = existing[0]
+  if (found) {
+    // 版が変わっていたら中身を作り直す。⚠ **キーは変えない**
+    // （immutable キャッシュで配った URL の中身が入れ替わるのを避けるためではなく、
+    //   予約済みキーの唯一性を保つため。中身の差し替えは版の記録で追える）
+    if (found.rendererVersion !== input.rendererVersion) {
+      await database
+        .update(questionOverlayAsset)
+        .set({ rendererVersion: input.rendererVersion, uploadedAt: null })
+        .where(eq(questionOverlayAsset.id, found.id))
+    }
+    return { id: found.id, objectKey: found.objectKey }
+  }
+
+  const reserved: ReservedKey = {
+    id: randomBytes(16).toString('hex'),
+    objectKey: `overlay/${randomBytes(24).toString('base64url')}.webp`,
+  }
+  await database.insert(questionOverlayAsset).values({
+    id: reserved.id,
+    questionId: input.questionId,
+    jpegQuality: input.jpegQuality,
+    chromaSubsampling: input.chromaSubsampling as '4:2:0' | '4:4:4',
+    metric: input.metric,
+    objectKey: reserved.objectKey,
+    rendererVersion: input.rendererVersion,
+  })
+  return reserved
+}
+
+export async function recordOverlayAsset(
+  database: Database,
+  id: string,
+  values: { bytes: number; sha256: string; contentType: string },
+): Promise<void> {
+  await database.update(questionOverlayAsset).set(values).where(eq(questionOverlayAsset.id, id))
 }
 
 /**

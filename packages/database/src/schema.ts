@@ -75,6 +75,17 @@ export const questionEncoding = mysqlTable(
     log2Ratio: double('log2_ratio').notNull(),
     /** 🔒 回答前のレスポンスに含めない（prd/04 §3.5） */
     difficulty: double('difficulty').notNull(),
+    /**
+     * JPEG が原本をどれだけ狂わせたか（prd/03 §4）。参照は可逆 PNG ＝ 原本と画素単位で同一。
+     *
+     * **null = 未計測**（劣化の計測より前に作られた行）。
+     * 🔒 これも回答前のレスポンスに含めない。劣化量は素材の性質と相関するため（prd/04 §3.5）。
+     */
+    de00Mean: double('de00_mean'),
+    de00P99: double('de00_p99'),
+    de00Max: double('de00_max'),
+    /** 🔒 検証ビューの主指標。平均は集中型素材で知覚閾値を下回る（measurements §8.2） */
+    de00Over2Pct: double('de00_over2_pct'),
   },
   (table) => [
     primaryKey({ columns: [table.questionId, table.profileId] }),
@@ -117,6 +128,45 @@ export const questionEncodedAsset = mysqlTable(
   },
   (table) => [
     unique('question_encoded_asset_triple_uq').on(table.questionId, table.profileId, table.kind),
+  ],
+)
+
+/**
+ * prd/03 §5.3 — 検証ビューの劣化オーバーレイ（回答後に見せる）。
+ *
+ * 🔑 **`profile_id` で持たない。** PNG 最適化の有無は JPEG を変えないので、オーバーレイも
+ * 変わらない。20 プロファイルに対して**実体は 10 通り**（5 品質 × 2 サブサンプリング）。
+ * プロファイル単位で持つとバイトが 2 倍重複する。
+ *
+ * 🔒 `object_key` は `question_encoded_asset` と同じ**乱数方式**。
+ * 劣化量は素材の性質と相関し、素材の性質は答えと相関する（prd/04 §4.1）。
+ */
+export const questionOverlayAsset = mysqlTable(
+  'question_overlay_asset',
+  {
+    id: varchar('id', { length: 64 }).primaryKey(),
+    questionId: varchar('question_id', { length: 64 }).notNull(),
+    jpegQuality: int('jpeg_quality').notNull(),
+    chromaSubsampling: mysqlEnum('chroma_subsampling', ['4:2:0', '4:4:4']).notNull(),
+    metric: mysqlEnum('metric', ['de00', 'ssim']).notNull(),
+    objectKey: varchar('object_key', { length: 255 }).notNull().unique(),
+    /**
+     * 🔒 **描画器の版**（配色・上限・合成方法）。**完成品を配る**ので、
+     * 変えたら全件作り直しになる。版の不一致はビルドを止める（prd/05 §6, §7）。
+     */
+    rendererVersion: varchar('renderer_version', { length: 64 }).notNull(),
+    bytes: int('bytes'),
+    contentType: varchar('content_type', { length: 64 }),
+    sha256: varchar('sha256', { length: 64 }),
+    uploadedAt: timestamp('uploaded_at'),
+  },
+  (table) => [
+    unique('question_overlay_asset_quad_uq').on(
+      table.questionId,
+      table.jpegQuality,
+      table.chromaSubsampling,
+      table.metric,
+    ),
   ],
 )
 
@@ -223,6 +273,7 @@ export const schema = {
   questionEncoding,
   questionDisplayAsset,
   questionEncodedAsset,
+  questionOverlayAsset,
   session,
   sessionQuestion,
   questionStats,
