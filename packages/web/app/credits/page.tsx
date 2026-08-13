@@ -23,6 +23,8 @@ export default async function CreditsPage() {
   const groups = await loadCredits()
   const total = groups.reduce((sum, group) => sum + group.count, 0)
   const violating = groups.filter((group) => requiresAttribution(group.license))
+  // 🔒 AI 生成の別が未宣言のまま公開すると、開示義務を静かに落とす（prd/05 §1.1）
+  const undeclared = groups.filter((group) => group.isAiGenerated === null)
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-12">
@@ -35,6 +37,7 @@ export default async function CreditsPage() {
       </div>
 
       {violating.length > 0 ? <AttributionWarning groups={violating} /> : null}
+      {undeclared.length > 0 ? <UndeclaredWarning groups={undeclared} /> : null}
 
       <section className="flex flex-col gap-3">
         <h2 className="font-bold text-xl">素材の由来</h2>
@@ -52,9 +55,14 @@ export default async function CreditsPage() {
                 <tr key={`${group.site} ${group.license}`} className="border-slate-100 border-b">
                   <td className="py-2 pr-4">
                     {group.site}
-                    {group.isAiGenerated ? (
+                    {group.isAiGenerated === true ? (
                       <span className="ml-2 rounded bg-slate-100 px-2 py-0.5 text-slate-700 text-xs">
                         AI 生成
+                      </span>
+                    ) : null}
+                    {group.isAiGenerated === null ? (
+                      <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-amber-900 text-xs">
+                        AI 生成の別が未宣言
                       </span>
                     ) : null}
                   </td>
@@ -88,7 +96,7 @@ export default async function CreditsPage() {
         <h2 className="font-bold text-xl">AI 生成について</h2>
         <p className="text-slate-600 text-sm">
           {groups
-            .filter((group) => group.isAiGenerated)
+            .filter((group) => group.isAiGenerated === true)
             .flatMap((group) => group.authors)
             .join(' / ') || '（該当なし）'}{' '}
           が生成した画像を含みます。<strong>人間が描いたものと偽っていません。</strong>
@@ -116,6 +124,28 @@ export default async function CreditsPage() {
         トップへ戻る
       </a>
     </main>
+  )
+}
+
+/**
+ * 🔒 **AI 生成の別が未宣言のまま公開しない**（prd/05 §1.1）。
+ *
+ * ⚠ **`false` で埋めなかったのはこのため。** 既定 `false` にすると、パイプラインを流し直すまで
+ * AI 生成の問題が「AI ではない」と表示され、**開示義務を静かに落とす**。
+ * `null`（未宣言）なら、こうして気づける。`pnpm quiz:build` を全素材に流せば解消する。
+ */
+function UndeclaredWarning({ groups }: { groups: readonly CreditGroup[] }) {
+  const count = groups.reduce((sum, group) => sum + group.count, 0)
+  return (
+    <section className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">
+      <p className="font-bold text-amber-900">
+        ⚠ AI 生成の別が未宣言の素材が {count} 点あります（このままでは公開できません）
+      </p>
+      <p className="mt-2 text-amber-900">
+        <code>pnpm quiz:build</code> を全素材に流して、<code>meta.json</code>{' '}
+        の宣言を取り込んでください。
+      </p>
+    </section>
   )
 }
 

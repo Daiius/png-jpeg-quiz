@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "024d321f-e4d2-4a9d-baa5-6cc6edd73ce4",
+  "id": "4e9e2eca-9e7f-4b08-8571-50457ab0458f",
   "prevId": "fd2be10a-2033-43e6-a607-a7b2bfe6e254",
   "tables": {
     "encode_profile": {
@@ -164,9 +164,8 @@
           "name": "is_ai_generated",
           "type": "boolean",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
+          "notNull": false,
+          "autoincrement": false
         },
         "derivation": {
           "name": "derivation",

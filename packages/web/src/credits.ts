@@ -19,23 +19,34 @@ export interface CreditGroup {
   site: string
   license: string
   licenseUrl: string | null
-  isAiGenerated: boolean
+  /** 🔒 `null` = **未宣言**（`meta.json` から取り込まれていない）。`false` と区別する */
+  isAiGenerated: boolean | null
   /** AI 生成の開示に使う（生成した人）。帰属義務があるという意味ではない */
   authors: string[]
   count: number
 }
 
 /**
- * 🔒 **帰属不要と認めるライセンス表記の許可リスト**（prd/05 §1.1）。
+ * 🔒 **帰属不要と認めるライセンス表記の完全一致リスト**（prd/05 §1.1）。
  *
- * ⚠ **部分一致で「帰属不要」に倒さない。** `MIT / generated with OpenAI` のような複合表記が
- * 「OpenAI を含むから帰属不要」と判定されると、MIT の表示義務を落としたまま公開してしまう。
- * **先頭からの一致だけを認める。**
+ * ⚠ **前方一致にしない。** `OpenAI; MIT` や `MIT / generated with OpenAI` のような複合表記が
+ * 「OpenAI で始まる／を含むから帰属不要」と判定されると、
+ * **MIT の表示義務を落としたまま公開してしまう。**
+ *
+ * 完全一致は表記が増えるたびに追記が要るが、**漏れたときに倒れる向きが安全側**
+ * （見慣れない表記＝帰属必須）なので、この形にしている。
+ *
+ * ⚠ **恒久的には、ライセンスを自由文字列ではなく種別の enum に分けるべき**
+ * （`TODO(spec):` prd/05 §1.1 に種別の一覧が無い）。ここは自由文字列に対する防波堤。
  */
-const ATTRIBUTION_FREE_PREFIXES = [/^CC0\b/, /^PUBLIC DOMAIN\b/, /^OPENAI\b/, /^自作/] as const
-
-/** 複合表記の目印。1 つでもあれば、片方が帰属必須かもしれないので安全側に倒す */
-const COMPOSITE_MARKERS = ['/', '+', ',', '、', 'および', 'かつ', 'AND '] as const
+const ATTRIBUTION_FREE_LICENSES: ReadonlySet<string> = new Set([
+  'CC0',
+  'CC0 1.0',
+  'CC0 1.0 UNIVERSAL',
+  'PUBLIC DOMAIN',
+  'OPENAI 出力',
+  '自作',
+])
 
 /**
  * 🔒 **帰属義務のあるライセンスか**（prd/05 §1.1）。
@@ -43,18 +54,18 @@ const COMPOSITE_MARKERS = ['/', '+', ',', '、', 'および', 'かつ', 'AND '] 
  *
  * `meta.json` の `license` は自由文字列なので、**判定できないものは安全側**（帰属必須）に倒す。
  * 「分からないから公開してよい」にすると、表記が増えたときに黙って漏れる。
- *
- * ⚠ **恒久的には、ライセンスを自由文字列ではなく種別の enum に分けるべき**
- * （`TODO(spec):` prd/05 §1.1 に種別の一覧が無い）。ここは自由文字列に対する防波堤。
  */
 export function requiresAttribution(license: string): boolean {
-  const normalized = license.trim().toUpperCase()
+  const normalized = license
+    .trim()
+    .toUpperCase()
+    // 末尾の注記だけは落とす（「OpenAI 出力（生成者に権利帰属）」の括弧部分）。
+    // ⚠ 落とすのは**末尾の 1 つだけ**。中間に現れる注記は表記の一部として扱う
+    .replace(/[（(][^（()）]*[)）]\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 
-  // 帰属必須の目印が混ざっていたら、どこに現れても帰属必須
-  if (normalized.includes('CC BY')) return true
-  if (COMPOSITE_MARKERS.some((marker) => normalized.includes(marker))) return true
-
-  return !ATTRIBUTION_FREE_PREFIXES.some((pattern) => pattern.test(normalized))
+  return !ATTRIBUTION_FREE_LICENSES.has(normalized)
 }
 
 interface SourceJson {

@@ -20,6 +20,7 @@ describe('requiresAttribution', () => {
     'OpenAI 出力（生成者に権利帰属）',
     'Public Domain',
     '自作（CC0 相当）',
+    '  CC0  ',
   ])('帰属が要らない: %s', (license) => {
     expect(requiresAttribution(license)).toBe(false)
   })
@@ -46,6 +47,11 @@ describe('requiresAttribution', () => {
     'CC0, MIT',
     'CC0 and MIT',
     '独自ライセンス（Public Domain ではない）',
+    // ⚠ 前方一致では素通りしてしまう形（bot の再指摘）
+    'OpenAI; MIT',
+    'OpenAI MIT',
+    'CC0 1.0 with additional terms',
+    '自作 だが Apache-2.0 部分を含む',
   ])('複合表記は帰属必須に倒す: %s', (license) => {
     expect(requiresAttribution(license)).toBe(true)
   })
