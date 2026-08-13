@@ -26,7 +26,7 @@ encode_profile ──< question_encoding >── question ──── question_
 
 | カラム | 型 | 備考 |
 |---|---|---|
-| `id` | varchar (PK) | `q<品質>-<サブサンプリング>-<png最適化>-v<版>`。標準は `q80-420-oxi-v1` |
+| `id` | varchar (PK) | `q<品質>-<サブサンプリング>-<png最適化>-v<版>`。標準は `q95-444-oxi-v1` |
 | `jpeg_quality` | int | 60 / 75 / 80 / 90 / 95 |
 | `chroma_subsampling` | enum | `4:2:0` / `4:4:4` |
 | `png_optimize` | bool | oxipng `-o4` をかけるか |

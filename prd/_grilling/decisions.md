@@ -41,10 +41,16 @@
 | # | 決定 |
 |---|---|
 | **Q3-a** | **可逆パレット化を許す**（色数 ≤256 なら PNG-8）。減色（pngquant 等の非可逆量子化）は**しない** |
-| **Q3-b** | **JPEG: q80 / 4:2:0 / progressive / mozjpeg** |
+| **Q3-b** | **JPEG: q95 / 4:4:4 / progressive / mozjpeg**（2026-08-13 に q80 / 4:2:0 から変更） |
 | **Q3-c** | **PNG: sharp（`effort` 明示）→ oxipng `-o4`** |
 
-- 実測で **q80 の PNG 勝率が 48%** と最も 50:50 に近かった（[measurements](./measurements.md) §3）。
+- **PNG・JPEG の両方を最高品質側に振った条件**にした。PNG は可逆なので画質の軸が無く、
+  `oxipng -o4` は画質を落とさずサイズだけを詰めるため、これが PNG 側の最高設定にあたる。
+- 校正母集団の取り方を 6 通り変えて測り、**5 通りで 4:4:4 の高品質側が選ばれた**
+  （[measurements](./measurements.md) §7）。「出荷しそうな構成」16 点では PNG 勝率ちょうど 50%。
+- ⚠ **旧決定の根拠は成立していなかった。** 「q80 の PNG 勝率 48% が最も 50:50 に近い」は
+  27 素材の実測に基づいていたが、その 27 素材は合成物に偏っており（3 点が無効・1 点が重複・
+  6 点は平坦に作ったもの）、**q80 を選ぶ母集団はその標本だけだった**（[measurements](./measurements.md) §6.3）。
 - **Q3-a は oxipng を通して初めて実現される**。sharp の `palette:true` は非可逆量子化を伴うので使えない。
   可逆な color type reduction をやるのは oxipng（[measurements](./measurements.md) §2）。
 - ⚠ **sharp の `png()` は `effort` を明示しないと 4 倍のサイズになる**（[measurements](./measurements.md) §1）。
