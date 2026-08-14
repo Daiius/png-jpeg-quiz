@@ -43,15 +43,14 @@ export interface QuizMode {
 export const STANDARD_30_QUESTION_COUNT = 30
 
 /**
- * 1 問の制限時間（prd/04 §5）。**暫定値、遊んでから調整する。**
- * 主目的は「ローカルでエンコードして調べる余裕を無くす」こと（T3）。時間切れは不正解扱い。
+ * 人間に不可能な速さを弾く（prd/04 §5 / T6）。
+ *
+ * ⚠ **上限は無い**（制限時間は 2026-08-14 に廃止した。prd/04 §5.1）。ここで見るのは
+ * 「速すぎる」側だけで、遅い側は自動化の兆候ではないので判定に使わない。
  */
-export const QUESTION_TIME_LIMIT_MS = 20_000
-
-/** 人間に不可能な速さを弾く（prd/04 §5 / T6）。 */
 export const MIN_ANSWER_MS = 300
 
-export type AnswerTiming = 'ok' | 'too-fast' | 'timed-out'
+export type AnswerTiming = 'ok' | 'too-fast'
 
 /**
  * 🔒 **経過時間はサーバの `served_at` 基準**で測ったものを渡すこと（prd/03 §7）。
@@ -59,7 +58,6 @@ export type AnswerTiming = 'ok' | 'too-fast' | 'timed-out'
  */
 export function classifyTiming(elapsedMs: number): AnswerTiming {
   if (elapsedMs < MIN_ANSWER_MS) return 'too-fast'
-  if (elapsedMs > QUESTION_TIME_LIMIT_MS) return 'timed-out'
   return 'ok'
 }
 

@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   double,
   index,
@@ -230,7 +231,13 @@ export const sessionQuestion = mysqlTable(
     answeredAt: timestamp('answered_at', { fsp: 3 }),
     answer: mysqlEnum('answer', ['png', 'jpeg']),
     isCorrect: boolean('is_correct'),
-    elapsedMs: int('elapsed_ms'),
+    /**
+     * ⚠ **`BIGINT` が要る。** 制限時間を廃止した（prd/04 §5.1）ので経過時間に上限が無くなり、
+     * 符号付き `INT` の上限 2,147,483,647ms（**約 24.9 日**）を超えうる。
+     * 開きっぱなしのタブから数週間後に回答すると、範囲外エラーで
+     * 回答トランザクションごと失敗し、その問題から先へ進めなくなる。
+     */
+    elapsedMs: bigint('elapsed_ms', { mode: 'number' }),
     awardedPoints: double('awarded_points'),
     /** 出題時点の静的難易度（後で式を変えても再計算できるように） */
     difficultyAtServe: double('difficulty_at_serve').notNull(),

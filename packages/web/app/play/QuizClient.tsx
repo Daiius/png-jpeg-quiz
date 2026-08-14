@@ -1,10 +1,10 @@
 'use client'
 
 import type {
+  Answer,
   AnswerResult,
   ProfileResult,
   QuestionView,
-  SubmitAction,
   VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -35,8 +35,6 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
 
   const loadQuestion = useCallback(async () => {
     setPhase({ kind: 'loading' })
-    // ⚠ **単調時計で測る**（`performance.now()`）。端末の時計が途中で変わっても影響を受けない
-    const requestedAt = performance.now()
     const response = await fetch(`/api/session/${sessionId}/question`)
     if (!response.ok) {
       setPhase({ kind: 'error', message: `出題を取得できませんでした（${response.status}）` })
@@ -47,18 +45,7 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
       setPhase({ kind: 'finished' })
       return
     }
-
-    // 🔒 **転送にかかった時間を期限に足さない**（prd/04 §5）。
-    // `remainingMs` はサーバがレスポンスを作った時点の値なので、受信までの分を引く。
-    // ⚠ ただし**サーバ内部の処理時間まで引かない**——出題を確定する前の時間を
-    // 回答時間から削ってしまう。往復からサーバの処理時間を除いた**ネットワーク分**だけを引く。
-    const roundTripMs = performance.now() - requestedAt
-    const transferMs = Math.max(0, roundTripMs - (body.serverProcessingMs ?? 0))
-    const question: QuestionView = {
-      ...body.question,
-      remainingMs: Math.max(0, body.question.remainingMs - transferMs),
-    }
-    setPhase({ kind: 'question', question })
+    setPhase({ kind: 'question', question: body.question as QuestionView })
   }, [sessionId])
 
   useEffect(() => {
@@ -66,42 +53,29 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
   }, [loadQuestion])
 
   /**
-   * 🔒 `action` が `'timeout'` のときは**どちらを選んだかを送らない**（prd/04 §2）。
-   * 期限を過ぎたかどうかはサーバが `served_at` から判定する。
-   * まだ期限前だった場合（425）は、サーバが返した残り時間だけ待って送り直す。
+   * 🔒 送るのは**どちらを選んだかだけ**（prd/04 §2）。経過時間はサーバが `served_at` から測る。
+   * ⚠ **制限時間は無い**（prd/04 §5.1）。自動送信の経路も無く、送信は必ずクリック起点。
    */
-  async function submit(question: QuestionView, action: SubmitAction) {
-    // 時間切れの自動送信とユーザーのクリックが重なることがある
+  async function submit(question: QuestionView, chosen: Answer) {
+    // 二重クリックで同じ問題に 2 回 POST するのを防ぐ
     if (submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
     try {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const response = await fetch(`/api/session/${sessionId}/answer`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ questionId: question.questionId, answer: action }),
-        })
+      const response = await fetch(`/api/session/${sessionId}/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questionId: question.questionId, answer: chosen }),
+      })
 
-        if (response.status === 425) {
-          // サーバ基準ではまだ期限前だった（端末の時計が進んでいる）
-          const body = await response.json().catch(() => ({ remainingMs: 1000 }))
-          const waitMs = Math.min(5000, Math.max(200, Number(body.remainingMs) || 1000))
-          await new Promise((resolve) => setTimeout(resolve, waitMs + 100))
-          continue
-        }
-
-        if (!response.ok) {
-          setPhase({ kind: 'error', message: `回答を送れませんでした（${response.status}）` })
-          return
-        }
-
-        const result: AnswerResult = await response.json()
-        setScore((current) => current + result.awardedPoints)
-        setPhase({ kind: 'result', question, result })
+      if (!response.ok) {
+        setPhase({ kind: 'error', message: `回答を送れませんでした（${response.status}）` })
         return
       }
-      setPhase({ kind: 'error', message: '時間切れの確定に失敗しました。再読み込みしてください' })
+
+      const result: AnswerResult = await response.json()
+      setScore((current) => current + result.awardedPoints)
+      setPhase({ kind: 'result', question, result })
     } finally {
       submittingRef.current = false
       setSubmitting(false)
@@ -138,15 +112,6 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
         </p>
         <p className="tabular-nums">{score.toFixed(2)} 点</p>
       </div>
-
-      {phase.kind === 'question' ? (
-        <Countdown
-          key={question.questionId}
-          remainingMs={question.remainingMs}
-          timeLimitMs={question.timeLimitMs}
-          onTimeout={() => void submit(question, 'timeout')}
-        />
-      ) : null}
 
       {/* display は R2 由来の外部 URL になる（M4）。next/image は挟まない */}
       <img
@@ -198,8 +163,7 @@ function ResultPanel({ result, onNext }: { result: AnswerResult; onNext: () => v
           result.correct ? 'text-xl font-bold text-green-700' : 'text-xl font-bold text-red-700'
         }
       >
-        {result.timedOut ? '時間切れ' : result.correct ? '正解' : '不正解'} — 小さいのは {winner}{' '}
-        でした
+        {result.correct ? '正解' : '不正解'} — 小さいのは {winner} でした
         {result.awardedPoints > 0 ? (
           <span className="ml-2 text-base text-slate-600">
             +{result.awardedPoints.toFixed(2)} 点
@@ -422,63 +386,5 @@ function ProfileResultsTable({ results }: { results: readonly ProfileResult[] })
         </table>
       </div>
     </details>
-  )
-}
-
-/**
- * 残り時間（prd/04 §5）。**表示だけ**で、判定はサーバが `served_at` 基準で行う。
- * クライアントの時計を信用しない（prd/03 §7）。
- */
-function Countdown({
-  remainingMs: initialRemainingMs,
-  timeLimitMs,
-  onTimeout,
-}: {
-  /** サーバがレスポンス生成時に計算した残り時間。**再読み込みしても正しい値から始まる** */
-  remainingMs: number
-  timeLimitMs: number
-  onTimeout: () => void
-}) {
-  const [remainingMs, setRemainingMs] = useState(initialRemainingMs)
-  const fired = useRef(false)
-  // ⚠ onTimeout は毎レンダリングで新しい関数になる。依存に入れると effect が再実行され、
-  // `fired` がリセットされて**同じ問題に 2 回目の回答が飛ぶ**（409 になる）。ref で逃がす。
-  const onTimeoutRef = useRef(onTimeout)
-  onTimeoutRef.current = onTimeout
-
-  useEffect(() => {
-    fired.current = false
-    // ⚠ **サーバの絶対時刻と端末の時計を突き合わせない**（ずれると期限前に timeout が飛ぶ）。
-    // 起点はサーバが計算した残り時間で、ここでは**経過分を引くだけ**。
-    // こうすると再読み込みしても残り時間が巻き戻らない（判定は引き続きサーバ）
-    const startedAt = Date.now()
-
-    function tick() {
-      const remaining = initialRemainingMs - (Date.now() - startedAt)
-      setRemainingMs(Math.max(0, remaining))
-      if (remaining <= 0 && !fired.current) {
-        fired.current = true
-        onTimeoutRef.current()
-      }
-    }
-
-    tick()
-    const timer = setInterval(tick, 100)
-    return () => clearInterval(timer)
-  }, [initialRemainingMs])
-
-  const ratio = Math.max(0, Math.min(1, remainingMs / timeLimitMs))
-  const seconds = Math.ceil(remainingMs / 1000)
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="h-1.5 w-full overflow-hidden rounded bg-slate-200">
-        <div
-          className={ratio < 0.25 ? 'h-full bg-red-600' : 'h-full bg-slate-700'}
-          style={{ width: `${ratio * 100}%` }}
-        />
-      </div>
-      <p className="text-right text-slate-500 text-xs tabular-nums">残り {seconds} 秒</p>
-    </div>
   )
 }

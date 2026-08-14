@@ -1,0 +1,1 @@
+ALTER TABLE `session_question` MODIFY COLUMN `elapsed_ms` bigint;

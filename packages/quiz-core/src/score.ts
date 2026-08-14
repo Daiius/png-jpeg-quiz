@@ -58,7 +58,7 @@ export interface ScoreInput {
   pngWinRate: number
 }
 
-/** 1 問分の得点。**不正解・時間切れは 0 点**（prd/06 §1）。 */
+/** 1 問分の得点。**不正解は 0 点**（prd/06 §1。⚠ 時間切れは無い。prd/04 §5.1）。 */
 export function scoreQuestion(input: ScoreInput): number {
   if (!input.correct) return 0
   const probability = answerProbability(input.pngWinRate, input.answer)

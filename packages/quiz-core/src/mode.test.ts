@@ -6,7 +6,6 @@ import {
   type ModeState,
   type PoolEntry,
   practice,
-  QUESTION_TIME_LIMIT_MS,
   standard30,
   targetDifficulty,
 } from './mode.ts'
@@ -137,8 +136,8 @@ describe('classifyTiming', () => {
     expect(classifyTiming(MIN_ANSWER_MS)).toBe('ok')
   })
 
-  it('制限時間を過ぎたら時間切れ（不正解扱い）', () => {
-    expect(classifyTiming(QUESTION_TIME_LIMIT_MS)).toBe('ok')
-    expect(classifyTiming(QUESTION_TIME_LIMIT_MS + 1)).toBe('timed-out')
+  it('⚠ 上限は無い（制限時間は廃止。prd/04 §5.1）', () => {
+    expect(classifyTiming(20_000)).toBe('ok')
+    expect(classifyTiming(60 * 60 * 1000)).toBe('ok')
   })
 })
