@@ -165,7 +165,7 @@ encode_profile ──< question_encoding >── question ──── question_
 | `answered_at` | timestamp \| null | |
 | `answer` | enum \| null | ユーザーの選択 |
 | `is_correct` | bool \| null | サーバ判定 |
-| `elapsed_ms` | int \| null | `answered_at - served_at`（**クライアント申告値は使わない**） |
+| `elapsed_ms` | **bigint** \| null | `answered_at - served_at`（**クライアント申告値は使わない**）<br>⚠ **`int` では足りない。** 制限時間を廃止した（[04](./04-session-and-integrity.md) §5.1）ので上限が無く、符号付き `int` の 2,147,483,647ms（約 24.9 日）を超えうる |
 | `awarded_points` | real \| null | 実際に付与した得点 |
 | `difficulty_at_serve` | real | 出題時点の静的難易度（後で式を変えても再計算できるように） |
 
