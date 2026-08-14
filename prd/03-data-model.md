@@ -26,7 +26,7 @@ encode_profile ──< question_encoding >── question ──── question_
 
 | カラム | 型 | 備考 |
 |---|---|---|
-| `id` | varchar (PK) | `q<品質>-<サブサンプリング>-<png最適化>-v<版>`。標準は `q80-420-oxi-v1` |
+| `id` | varchar (PK) | `q<品質>-<サブサンプリング>-<png最適化>-v<版>`。標準は `q95-444-oxi-v1` |
 | `jpeg_quality` | int | 60 / 75 / 80 / 90 / 95 |
 | `chroma_subsampling` | enum | `4:2:0` / `4:4:4` |
 | `png_optimize` | bool | oxipng `-o4` をかけるか |
@@ -70,9 +70,19 @@ encode_profile ──< question_encoding >── question ──── question_
 | `answer` | enum(`png`,`jpeg`) | 派生値だが明示的に持つ（出題クエリの主役） |
 | `log2_ratio` | real | `log2(png_bytes / jpeg_bytes)` |
 | `difficulty` | real | **静的難易度**。`|log2_ratio|` から算出し、直感との逆行で加点 |
+| `de00_mean` / `de00_p99` / `de00_max` | real | **JPEG が原本をどれだけ狂わせたか**（CIEDE2000）。参照は可逆 PNG＝原本と画素単位で同一 |
+| `de00_over2_pct` | real | **ΔE00 > 2 の画素の割合**。検証ビューの主指標（[04](./04-session-and-integrity.md) §4.1） |
 
 - **インデックス**: `(profile_id, difficulty)`（出題選択）、`(profile_id, answer)`（偏りの集計）。
-- 🔒 **`difficulty` と `log2_ratio` は回答前のレスポンスに含めない**（[04](./04-session-and-integrity.md) §3.5）。
+- 🔒 **`difficulty` / `log2_ratio` / `de00_*` は回答前のレスポンスに含めない**（[04](./04-session-and-integrity.md) §3.5）。
+  劣化量は素材の性質と相関するので、答えの方向の手がかりになる。
+- **平均は主指標にしない。** 集中型の素材（線画・図版）では平均が知覚閾値を下回り、
+  「ほぼ無劣化」と読めてしまう（実測: `commons-vector-space` は平均 0.21 なのに画素の 2.9% が閾値超え）。
+  → [measurements](./_grilling/measurements.md) §8.2。
+- ⚠ **素材をまたぐ「劣化度」のランキングには使わない。** 平均で並べるか最大で並べるかで順位が逆転する
+  （同一素材内で 20 条件を比べる分には、どの指標でも順位はほぼ一致する。スピアマン 0.87〜1.00）。
+- **SSIM のスカラーは持たない。** 値（0.9992 等）を一般向けに説明できないため、
+  SSIM は検証ビューのマップ専用とする。
 
 ## 5. 配布アセット — 2 つのテーブルに分ける
 
@@ -105,7 +115,26 @@ encode_profile ──< question_encoding >── question ──── question_
 - ⚠ MySQL の主キー列は暗黙に NOT NULL になるため、**nullable な `profile_id` を PK に含めない**
   （テーブルを分けたのはこの制約も理由の一つ）。
 - `bytes` は `question_encoding` にも冗長に持つ（出題クエリで JOIN しないため）。
-  **一致を CI で検査する**（[05](./05-content-pipeline.md) §6）。
+  **一致を CI で検査する**（[05](./05-content-pipeline.md) §7）。
+
+### 5.3 `question_overlay_asset` — 検証ビューの劣化オーバーレイ（回答後）
+
+| カラム | 型 | 備考 |
+|---|---|---|
+| `id` | varchar (PK) | **暗号学的乱数** |
+| `question_id` / `jpeg_quality` / `chroma_subsampling` / `metric`(`de00`\|`ssim`) | | **この 4 列に UNIQUE 制約** |
+| `object_key` | varchar | 🔒 **乱数由来**。5.2 と同じ規則 |
+| `renderer_version` | varchar | **描画器の版**（配色・上限・合成方法）。変わったら再生成する |
+| `bytes` / `content_type` / `sha256` / `uploaded_at` | | 5.2 と同じ |
+
+- 🔑 **`profile_id` で持たない。** PNG 最適化の有無は JPEG を変えないので、オーバーレイも変わらない。
+  20 プロファイルに対して**実体は 10 通り**（5 品質 × 2 サブサンプリング）。
+  プロファイル単位で持つと**バイトが 2 倍重複する**。
+- 1 問あたり **10 条件 × 2 指標 = 20 枚**。実測で 1 枚 4〜46 KB、1 問あたり 1 MB 弱
+  （[measurements](./_grilling/measurements.md) §8.4）。
+- 🔒 **`renderer_version` を記録する理由**は、エンコーダ版と同じ（§2）。
+  **完成品を配るので配色・上限が焼き付く**。変えたら全件作り直しになるため、
+  版の不一致を検出してビルドを止める（[05](./05-content-pipeline.md) §7）。
 
 ## 6. `session` — 1 プレイ
 

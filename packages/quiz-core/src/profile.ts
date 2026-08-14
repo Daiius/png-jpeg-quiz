@@ -49,8 +49,14 @@ export function buildProfileId(
   return `q${jpegQuality}-${SUBSAMPLING_SLUG[chromaSubsampling]}-${pngOptimize ? 'oxi' : 'raw'}-v${version}`
 }
 
-/** サイトの既定であり、ランキングの基準（prd/01 §3.1） */
-export const STANDARD_PROFILE_ID = buildProfileId(80, '4:2:0', true)
+/**
+ * サイトの既定であり、ランキングの基準（prd/01 §3.1）。
+ *
+ * **PNG・JPEG の両方を最高品質側に振った条件**。PNG は可逆なので常に画質最高で、
+ * `oxi` あり（oxipng -o4）は画質を落とさずサイズだけを詰める。JPEG は q95 / 4:4:4。
+ * 校正母集団を 6 通り変えても 4:4:4 の高品質側が選ばれる（prd/_grilling/measurements §7）。
+ */
+export const STANDARD_PROFILE_ID = buildProfileId(95, '4:4:4', true)
 
 /**
  * 選択できる 20 プロファイル（5 品質 × 2 サブサンプリング × PNG 最適化の有無）。

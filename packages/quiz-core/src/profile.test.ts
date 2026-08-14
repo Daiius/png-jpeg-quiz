@@ -23,11 +23,19 @@ describe('ENCODE_PROFILES', () => {
     }
   })
 
-  it('標準プロファイルはちょうど 1 つで、q80-420-oxi-v1', () => {
+  it('標準プロファイルはちょうど 1 つで、q95-444-oxi-v1', () => {
     const standards = ENCODE_PROFILES.filter((p) => p.isStandard)
     expect(standards).toHaveLength(1)
-    expect(standards[0]?.id).toBe('q80-420-oxi-v1')
-    expect(STANDARD_PROFILE_ID).toBe('q80-420-oxi-v1')
+    expect(standards[0]?.id).toBe('q95-444-oxi-v1')
+    expect(STANDARD_PROFILE_ID).toBe('q95-444-oxi-v1')
+  })
+
+  it('標準は PNG・JPEG とも最高品質側（prd/01 §3.1）', () => {
+    const standard = ENCODE_PROFILES.find((p) => p.isStandard)
+    expect(standard?.jpegQuality).toBe(95)
+    expect(standard?.chromaSubsampling).toBe('4:4:4')
+    // PNG は可逆なので「画質」は常に最高。oxi あり = 画質を落とさず最大限詰める
+    expect(standard?.pngOptimize).toBe(true)
   })
 
   it('順序が決定的（seed の冪等性のため）', () => {
