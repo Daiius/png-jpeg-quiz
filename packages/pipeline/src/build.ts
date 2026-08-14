@@ -42,6 +42,8 @@ export interface BuildSummary {
   /** 20 プロファイルが揃わず draft のままの問題（出題されない） */
   draft: number
   skipped: { name: string; reason: string }[]
+  /** 素材が `assets/source/` から消えたので取り下げた問題（素材名） */
+  retired: string[]
 }
 
 function sha256(bytes: Buffer): string {
@@ -233,6 +235,47 @@ async function guardToolVersions(database: Database, profileIds: readonly string
   }
 }
 
+/**
+ * 素材が `assets/source/` から消えた問題を `retired` にする。
+ *
+ * ⚠ **素材を退避しても DB の行は残る。** 実際、`ai-photo-portrait` を
+ * `assets/excluded/` へ移した後も `published` のまま出題され続けていた（prd/05 §1.2）。
+ * 素材を消したことが出題に反映されないと、**採らないと決めた素材が配られ続ける。**
+ *
+ * TODO(spec): prd/05 に「素材を取り下げたときの手順」が無い。最小の実装として、
+ * **全素材を対象にしたビルドのときだけ**、現在の素材から作られる `question.id` の集合に
+ * 無い `published` を `retired` にする。`--only` で絞ったビルドでは何もしない。
+ *
+ * 🔑 **素材名ではなく `question.id`（内容ハッシュ由来）で判定する。**
+ * 素材名で見ると、**同じファイル名のまま中身を差し替えた**ときに取り下げが漏れる
+ * （新しい内容ハッシュで別の問題が作られる一方、旧問題は名前が残っているので生き延びる）。
+ * 不適格と分かった画像を同名で置き換える運用は普通にありうる。
+ *
+ * ⚠ **`derivation.sourceName` を持たない行は触らない。** 合成問題（prd/05 §4）など、
+ * `assets/source/` に対応する素材が無い問題を巻き込まないため。
+ *
+ * ⚠ **アセットは消さない。** 過去のセッションが参照した URL を壊さないため。
+ * R2 側の掃除は孤児掃除コマンドの担当（prd/05 §2）。
+ */
+async function retireRemovedSources(
+  database: Database,
+  currentQuestionIds: ReadonlySet<string>,
+): Promise<string[]> {
+  const rows = await database
+    .select({ id: question.id, derivation: question.derivation })
+    .from(question)
+    .where(eq(question.status, 'published'))
+
+  const retired: string[] = []
+  for (const row of rows) {
+    const name = (row.derivation as { sourceName?: unknown } | null)?.sourceName
+    if (typeof name !== 'string' || currentQuestionIds.has(row.id)) continue
+    await database.update(question).set({ status: 'retired' }).where(eq(question.id, row.id))
+    retired.push(name)
+  }
+  return retired
+}
+
 export async function build(options: BuildOptions): Promise<BuildSummary> {
   const profileIds = options.profileIds ?? ENCODE_PROFILES.map((profile) => profile.id)
   const database = getDatabase()
@@ -247,7 +290,7 @@ export async function build(options: BuildOptions): Promise<BuildSummary> {
 
   await guardToolVersions(database, profileIds)
 
-  const summary: BuildSummary = { questions: 0, encodings: 0, draft: 0, skipped: [] }
+  const summary: BuildSummary = { questions: 0, encodings: 0, draft: 0, skipped: [], retired: [] }
   for (const asset of targets) {
     const result = await buildOne(database, asset, options.outDir, profileIds)
     if (result.skipped) {
@@ -258,6 +301,18 @@ export async function build(options: BuildOptions): Promise<BuildSummary> {
     summary.encodings += result.encodings
     if (result.status === 'draft') summary.draft += 1
     console.log(`  ✓ ${asset.name} (${result.encodings} profiles, ${result.status})`)
+  }
+
+  // 🔒 素材を絞ったビルドでは判断できない（対象外の素材が「消えた」ように見える）
+  if (!options.only?.length) {
+    // ⚠ `targets` ではなく `sources` 全件から作る（同点で採用しなかった素材まで巻き込まないため）
+    summary.retired = await retireRemovedSources(
+      database,
+      new Set(sources.map((asset) => questionIdFor(asset.contentHash))),
+    )
+    for (const name of summary.retired) {
+      console.log(`  ⊖ retired ${name}（現在の素材から作られる問題ではない）`)
+    }
   }
 
   await writeFile(
@@ -294,7 +349,8 @@ export async function main(argv: readonly string[]): Promise<void> {
   console.log(
     `built ${summary.questions} questions / ${summary.encodings} encodings` +
       (summary.draft ? ` — ⚠ ${summary.draft} 件は 20 プロファイルが揃わず draft` : '') +
-      (summary.skipped.length ? ` (skipped ${summary.skipped.length})` : ''),
+      (summary.skipped.length ? ` (skipped ${summary.skipped.length})` : '') +
+      (summary.retired.length ? ` (retired ${summary.retired.length})` : ''),
   )
   for (const skipped of summary.skipped) {
     console.log(`  - skipped ${skipped.name}: ${skipped.reason}`)

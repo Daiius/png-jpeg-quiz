@@ -1,4 +1,4 @@
-import { ENCODE_PROFILES, STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
+import { ENCODE_PROFILES, findProfile, STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
 
 export const metadata = {
   title: 'エンコード条件 — PNG / JPEG どっちが小さい？',
@@ -14,6 +14,9 @@ export const metadata = {
  * **問題を特定できる形にしない**。
  */
 export default function ConditionsPage() {
+  // ⚠ 条件の中身を書き写さない（旧標準の説明文が残る事故を防ぐ）
+  const standard = findProfile(STANDARD_PROFILE_ID)
+
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-12">
       <div className="flex flex-col gap-3">
@@ -40,14 +43,17 @@ export default function ConditionsPage() {
           </dd>
           <dt className="font-medium">JPEG</dt>
           <dd>
-            品質 <strong>80</strong> / <strong>4:2:0</strong> / progressive / mozjpeg
+            品質 <strong>{standard?.jpegQuality}</strong> /{' '}
+            <strong>{standard?.chromaSubsampling}</strong> / progressive / mozjpeg
           </dd>
           <dt className="font-medium">比較</dt>
           <dd>ファイルのバイト数。転送時圧縮（gzip / br）は考慮しません</dd>
         </dl>
         <p className="text-sm text-slate-600">
-          この条件を標準にしたのは、手元の実測で <strong>PNG 勝率が最も 50:50 に近かった</strong>
-          ためです。
+          この条件を標準にしたのは、<strong>PNG・JPEG の両方を最高品質側に振った条件</strong>
+          だからです。PNG は可逆なので常に画質最高で、oxipng はサイズだけを詰めます。 JPEG
+          も品質・サブサンプリングを最高側にすると、
+          <strong>「どちらも最良を尽くしたうえでの比較」</strong>という説明のつく基準になります。
         </p>
       </section>
 

@@ -1,7 +1,11 @@
-import { STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
+import { findProfile, STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
 import { StartPanel } from './StartPanel.tsx'
 
 export default function HomePage() {
+  // ⚠ 標準条件の中身を**書き写さない**。プロファイル定義から引く。
+  // 旧標準（q80-420）の説明文が再校正後も残っていて、ID と食い違っていた
+  const standard = findProfile(STANDARD_PROFILE_ID)
+
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-16">
       <h1 className="text-3xl font-bold">PNG / JPEG どっちが小さい？</h1>
@@ -15,7 +19,8 @@ export default function HomePage() {
         <dd className="font-mono">{STANDARD_PROFILE_ID}</dd>
         <dd className="mt-1 text-slate-600">
           PNG: sharp（compressionLevel 9 / effort 10）→ oxipng -o4 ／ JPEG: 品質
-          80・4:2:0・progressive・mozjpeg ／ リサイズなし
+          {standard?.jpegQuality}・{standard?.chromaSubsampling}・progressive・mozjpeg ／
+          リサイズなし
         </dd>
       </dl>
 
