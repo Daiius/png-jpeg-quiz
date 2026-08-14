@@ -133,12 +133,38 @@ interface EncodedLocator { urlFor(assetId: string): string }
 | コマンド | 内容 |
 |---|---|
 | `pnpm dev` | docker compose watch |
+| `pnpm dev:remote` | 同上 ＋ `.env.remote`（リモート dev 公開。→ §6.1。`:logs` / `:down` あり） |
 | `pnpm typecheck` / `lint` / `format` / `test` | tsc / Biome / Vitest |
 | `pnpm db:migrate` / `db:seed` | Drizzle マイグレーション / seed |
 | `pnpm quiz:build` | 素材 → 問題データ + アセット生成（[05](./05-content-pipeline.md)） |
 | `pnpm quiz:upload` | 生成アセットを R2 へ同期 |
 
 - 環境変数の実体（`.env*`）は**コミットしない**。雛形 `*.example` を置く。
+
+### 6.1 リモート dev 公開（`pnpm dev:remote`）
+
+常駐マシン上の dev スタックを、前段プロキシ（TLS 終端＋認証を担うトンネル等）越しに手元ブラウザから
+使うための構成。**ローカル dev と compose / next 設定を分けない**。単一の `compose.yaml` と
+`next.config.ts` を env でパラメータ化し、remote 差分は `.env.remote` だけに集約する
+（[`.env.remote.example`](../.env.remote.example)）。差分は次の 3 つのみ:
+
+| 差分 | ローカル既定 | remote | 効かせ方 |
+|---|---|---|---|
+| 公開オリジン | `http://localhost:3000` | `PUBLIC_ORIGIN=https://<host>` | `next.config.ts` の `allowedDevOrigins`／絶対 URL 生成 |
+| 画像のベース URL | `http://localhost:3000/assets` | `ASSET_BASE_URL=https://<host>/assets` | `web/src/env.ts`（R2 へ移すまでは web 自身が配る） |
+| web のホスト公開 | `0.0.0.0:3000`（全 IF） | `127.0.0.1` の 1 ポート | compose `${WEB_BIND}:${WEB_PORT}` |
+
+- **ホストにポートを出すのは web だけ**（db は compose 網内のみ）。前段プロキシはその 1 バインドへ
+  向ける。他プロジェクトとのポート衝突も避けられる。
+- ⚠ **compose は `--env-file` を渡すと既定の `.env` を読まなくなる。** そのため
+  `--env-file .env --env-file .env.remote`（**後勝ち**）の 2 段で渡し、DB 認証情報などの共通の値は
+  `.env` に残したまま `.env.remote` には差分だけを置く。
+- ⚠ **Next 16 の dev サーバは `/_next/*`・`/__nextjs*` へのクロスオリジン要求を既定で 403 にする。**
+  ページ遷移の GET は Origin を送らないので通るが、**HMR の WebSocket は Origin を送るので落ちる**
+  （画面は出るのに更新が反映されない、という形で現れる）。`PUBLIC_ORIGIN` の host を
+  `allowedDevOrigins` に入れて回避している。
+- 公開先は**必ず前段の認証で保護する**。dev スタックは検証ビュー等の内部情報をそのまま見せる。
+- 前段プロキシは compose の外で常駐させる。**公開ホスト名・ポート・その具体設定は公開リポに書かない**（§7）。
 
 ## 7. デプロイ姿勢
 

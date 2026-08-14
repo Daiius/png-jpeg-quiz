@@ -1,5 +1,15 @@
 # 開発環境（prd/02 §6）。MySQL はホストにポートを出さず compose 網内だけで使う。
 # 起動: pnpm dev（= docker compose watch）
+#
+# ローカル dev とリモート dev 公開（前段プロキシ越しに手元ブラウザから使う）で compose を分けない。
+# 単一の compose.yaml を環境変数でパラメータ化し、remote 差分は .env.remote に集約する
+# （.env.remote.example 参照。pnpm dev:remote = docker compose --env-file .env --env-file .env.remote watch）。
+# prd/02 §6.1。
+#
+#   | 差分            | ローカル既定       | remote（.env.remote）           |
+#   |-----------------|--------------------|---------------------------------|
+#   | web の公開バインド | 0.0.0.0:3000（全 IF） | 127.0.0.1 の 1 ポート（WEB_BIND） |
+#   | 公開オリジン      | http://localhost:3000 | PUBLIC_ORIGIN=https://<host>   |
 name: png-jpeg-quiz
 
 services:
@@ -40,8 +50,10 @@ services:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
       ASSET_BASE_URL: ${ASSET_BASE_URL:-http://localhost:3000/assets}
     ports:
-      # ホストに出すのは web だけ
-      - '${WEB_PORT:-3000}:3000'
+      # ホストに出すのは web だけ（db は compose 網内のみ）。
+      # WEB_BIND でバインドアドレスを絞れる。remote 公開時は 127.0.0.1 にして、
+      # 前段プロキシからしか届かない唯一の外向きの口にする（§6.1）。
+      - '${WEB_BIND:-0.0.0.0}:${WEB_PORT:-3000}:3000'
     volumes:
       # pnpm quiz:build の成果物（M4 までは web がここから配信する）。
       # bind mount ではなく named volume にして、ホスト側のファイル権限に依存させない
