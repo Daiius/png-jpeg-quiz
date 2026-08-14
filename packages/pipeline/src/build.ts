@@ -9,11 +9,33 @@ import {
   question,
   questionDisplayAsset,
   questionEncoding,
+  questionOverlayAsset,
 } from '@png-jpeg-quiz/database'
-import { ENCODE_PROFILES, STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
-import { eq } from 'drizzle-orm'
-import { encodeDisplay, encodeForProfile, toolVersions } from './encode.ts'
-import { displayObjectKey, recordEncodedAsset, reserveEncodedKey } from './keys.ts'
+import { ENCODE_PROFILES, findProfile, STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
+import { and, eq } from 'drizzle-orm'
+import {
+  type De00Scalars,
+  de00Map,
+  de00Scalars,
+  OVERLAY_METRICS,
+  RENDERER_VERSION,
+  renderOverlay,
+  ssimMap,
+} from './degradation.ts'
+import {
+  decodeToRaw,
+  encodeDisplay,
+  encodeForProfile,
+  encodeOverlay,
+  toolVersions,
+} from './encode.ts'
+import {
+  displayObjectKey,
+  recordEncodedAsset,
+  recordOverlayAsset,
+  reserveEncodedKey,
+  reserveOverlayKey,
+} from './keys.ts'
 import { normalize } from './normalize.ts'
 import { loadSources, questionIdFor, type SourceAsset } from './source.ts'
 
@@ -48,6 +70,11 @@ export interface BuildSummary {
 
 function sha256(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex')
+}
+
+/** 劣化は JPEG だけで決まるので、`(品質, サブサンプリング)` を単位にする（prd/03 §5.3） */
+function comboKeyOf(jpegQuality: number, chromaSubsampling: string): string {
+  return `${jpegQuality}|${chromaSubsampling}`
 }
 
 async function buildOne(
@@ -97,7 +124,7 @@ async function buildOne(
       derivation,
       source: asset.meta.source,
       explanation: asset.meta.explanation ?? null,
-      // status は最後に決める（20 プロファイルが揃って初めて published にする）
+      // status は最後に決める（20 プロファイルとオーバーレイが揃って初めて published にする）
     })
     .onDuplicateKeyUpdate({
       set: {
@@ -110,6 +137,15 @@ async function buildOne(
         derivation,
         source: asset.meta.source,
         explanation: asset.meta.explanation ?? null,
+        /**
+         * 🔒 **再生成に入る前に `draft` へ落とす。**
+         *
+         * アセットは 1 枚ずつ更新するので、途中で例外やプロセス停止が起きると
+         * **不完全なまま・`renderer_version` が混ざったまま `published` で配信され続ける**。
+         * 先に降ろしておけば、最悪でも「出題されない」で止まる。
+         * 揃ったかどうかはこの関数の末尾で確かめて、そこで初めて `published` に戻す。
+         */
+        status: 'draft',
       },
     })
 
@@ -124,13 +160,60 @@ async function buildOne(
     .values({ questionId, ...displayValues })
     .onDuplicateKeyUpdate({ set: displayValues })
 
+  // --- 劣化の計測とオーバーレイ（prd/05 §6 / prd/04 §4.1）---
+  //
+  // 🔑 **PNG 最適化の有無は JPEG を変えない。** 20 プロファイルに対して
+  // 実体は 10 通り（5 品質 × 2 サブサンプリング）なので、条件ごとに 1 度だけ測る。
+  const degradation = new Map<string, De00Scalars>()
   for (const result of results) {
+    const profile = findProfile(result.profileId)
+    if (!profile) throw new Error(`知らないプロファイル: ${result.profileId}`)
+    const combo = comboKeyOf(profile.jpegQuality, profile.chromaSubsampling)
+    if (degradation.has(combo)) continue
+
+    const decoded = await decodeToRaw(result.jpeg)
+    const de00 = de00Map(image.raw, decoded)
+    degradation.set(combo, de00Scalars(de00))
+
+    // 🔒 オーバーレイのキーも乱数（prd/04 §4.1）。劣化量は答えと相関する
+    for (const metric of OVERLAY_METRICS) {
+      const map = metric === 'de00' ? de00 : ssimMap(image.raw, decoded)
+      const overlay = await encodeOverlay(
+        renderOverlay(decoded, map, metric),
+        image.width,
+        image.height,
+      )
+      const reserved = await reserveOverlayKey(database, {
+        questionId,
+        jpegQuality: profile.jpegQuality,
+        chromaSubsampling: profile.chromaSubsampling,
+        metric,
+        rendererVersion: RENDERER_VERSION,
+      })
+      await writeAsset(outDir, reserved.objectKey, overlay)
+      await recordOverlayAsset(database, reserved.id, {
+        bytes: overlay.byteLength,
+        sha256: sha256(overlay),
+        contentType: 'image/webp',
+      })
+    }
+  }
+
+  for (const result of results) {
+    const profile = findProfile(result.profileId)
+    const scalars = profile
+      ? degradation.get(comboKeyOf(profile.jpegQuality, profile.chromaSubsampling))
+      : undefined
     const encodingValues = {
       pngBytes: result.pngBytes,
       jpegBytes: result.jpegBytes,
       answer: result.answer,
       log2Ratio: result.log2Ratio,
       difficulty: result.difficulty,
+      de00Mean: scalars?.mean ?? null,
+      de00P99: scalars?.p99 ?? null,
+      de00Max: scalars?.max ?? null,
+      de00Over2Pct: scalars?.over2Pct ?? null,
     }
     await database
       .insert(questionEncoding)
@@ -160,11 +243,39 @@ async function buildOne(
     .where(eq(questionEncoding.questionId, questionId))
   const presentIds = new Set(existing.map((row) => row.profileId))
 
+  // 🔒 **オーバーレイが 10 条件 × 2 指標そろっていることも条件**（prd/05 §7）。
+  // 欠けたまま published にすると、正解画面の検証ビューが空になる。
+  // ⚠ **現行の `renderer_version` のものだけを数える**（版が変われば作り直しが要る。prd/05 §6）。
+  const overlays = await database
+    .select({
+      jpegQuality: questionOverlayAsset.jpegQuality,
+      chromaSubsampling: questionOverlayAsset.chromaSubsampling,
+      metric: questionOverlayAsset.metric,
+    })
+    .from(questionOverlayAsset)
+    .where(
+      and(
+        eq(questionOverlayAsset.questionId, questionId),
+        eq(questionOverlayAsset.rendererVersion, RENDERER_VERSION),
+      ),
+    )
+  const presentOverlays = new Set(
+    overlays.map((row) => `${comboKeyOf(row.jpegQuality, row.chromaSubsampling)}|${row.metric}`),
+  )
+  const overlaysComplete = ENCODE_PROFILES.every((profile) =>
+    OVERLAY_METRICS.every((metric) =>
+      presentOverlays.has(
+        `${comboKeyOf(profile.jpegQuality, profile.chromaSubsampling)}|${metric}`,
+      ),
+    ),
+  )
+
   // TODO(spec): 本来はここで draft に入れ、人手レビュー（prd/05 §3 ステップ 11）を経て
   // published にする。レビュー UI は M3 以降なので、当面は揃った時点で published にする。
-  const status = ENCODE_PROFILES.every((profile) => presentIds.has(profile.id))
-    ? 'published'
-    : 'draft'
+  const status =
+    ENCODE_PROFILES.every((profile) => presentIds.has(profile.id)) && overlaysComplete
+      ? 'published'
+      : 'draft'
   await database.update(question).set({ status }).where(eq(question.id, questionId))
 
   return { encodings: results.length, status }

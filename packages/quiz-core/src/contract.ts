@@ -124,6 +124,27 @@ export const profileResultSchema = z.object({
 })
 export type ProfileResult = z.infer<typeof profileResultSchema>
 
+/**
+ * 検証ビュー（prd/04 §4.1）— JPEG が「どこを」「どれだけ」壊したか。
+ *
+ * 🔑 **条件は 10 通り**（5 品質 × 2 サブサンプリング）。PNG 最適化は JPEG を変えないので、
+ * 20 プロファイルに対して劣化の実体は 10 通りしかない（prd/03 §5.3）。
+ *
+ * 🔒 **回答後にだけ到達できる。** 劣化量は素材の性質と相関し、素材の性質は答えと相関するので、
+ * 出題レスポンスには絶対に含めない（prd/04 §3.5）。
+ */
+export const verificationViewSchema = z.object({
+  jpegQuality: z.number().int(),
+  chromaSubsampling: z.string(),
+  /** 🔒 主指標: ΔE00 > 2 の画素の割合。**平均は出さない**（measurements §8.2） */
+  over2Pct: z.number().nullable(),
+  /** ΔE00（CIEDE2000）のオーバーレイ。輪郭の**上**に乗る */
+  de00Url: z.url(),
+  /** 1 − SSIM のオーバーレイ。輪郭の**外側**が光る。ΔE00 とは別の場所を指す */
+  ssimUrl: z.url(),
+})
+export type VerificationView = z.infer<typeof verificationViewSchema>
+
 /** 回答後は全部見せる（prd/04 §4）。ここは意図的に開示側。 */
 export const answerResultSchema = z.object({
   correct: z.boolean(),
@@ -143,6 +164,8 @@ export const answerResultSchema = z.object({
   source: z.record(z.string(), z.unknown()),
   /** 20 プロファイルすべての結果（prd/04 §4） */
   profileResults: z.array(profileResultSchema),
+  /** 検証ビュー（prd/04 §4.1）。10 条件分。空なら未生成（古いビルド） */
+  verification: z.array(verificationViewSchema),
   hasNext: z.boolean(),
 })
 export type AnswerResult = z.infer<typeof answerResultSchema>

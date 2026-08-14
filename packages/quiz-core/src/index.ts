@@ -28,6 +28,8 @@ export {
   sessionIdSchema,
   submitActionSchema,
   submitAnswerRequestSchema,
+  type VerificationView,
+  verificationViewSchema,
 } from './contract.ts'
 export { answerFor, log2Ratio, staticDifficulty } from './difficulty.ts'
 export {

@@ -5,6 +5,7 @@ import type {
   ProfileResult,
   QuestionView,
   SubmitAction,
+  VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -228,6 +229,8 @@ function ResultPanel({ result, onNext }: { result: AnswerResult; onNext: () => v
         {result.explanation ? ` — ${result.explanation}` : ''}
       </p>
 
+      <VerificationPanel result={result} />
+
       <ProfileResultsTable results={result.profileResults} />
 
       <details className="text-sm text-slate-600">
@@ -249,6 +252,115 @@ function ResultPanel({ result, onNext }: { result: AnswerResult; onNext: () => v
         {result.hasNext ? '次の問題へ' : '結果を見る'}
       </button>
     </div>
+  )
+}
+
+/**
+ * 検証ビュー（prd/04 §4.1）— JPEG が「どこを」「どれだけ」壊したか。
+ *
+ * サイズの答えと**対になる情報**。「JPEG が小さいのはタダではない」を目で確かめられるようにする。
+ *
+ * - 🔒 **既定は回答した条件のみ。** 出題条件は固定なので、他条件は「見たい人だけ」（折りたたみ）。
+ * - 🔒 **どちらの指標を見ているか必ず出す。** ΔE00 は輪郭の**上**に乗り、
+ *   1−SSIM は 8×8 窓で均されて輪郭の**外側**が光る。同じ領域を指しながら画素はずれる。
+ * - ⚠ **絵と数値は厳密には一致しない。** 絵は連続階調（ΔE00 上限 5）、数値は閾値 2 の二値。
+ *   意図した不一致（prd/04 §4.1）。
+ */
+function VerificationPanel({ result }: { result: AnswerResult }) {
+  const [metric, setMetric] = useState<'de00' | 'ssim'>('de00')
+  const selected = result.profileResults.find((profile) => profile.isSelected)
+  const answered = result.verification.find(
+    (view) =>
+      view.jpegQuality === selected?.jpegQuality &&
+      view.chromaSubsampling === selected?.chromaSubsampling,
+  )
+  const [shown, setShown] = useState<VerificationView | null>(null)
+  const current = shown ?? answered
+
+  if (!current) return null
+
+  const others = result.verification.filter((view) => view !== answered)
+
+  return (
+    <section className="flex flex-col gap-2 rounded border border-slate-200 p-4">
+      <h3 className="font-bold text-sm">JPEG は「どこを」「どれだけ」壊したか</h3>
+
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        {(['de00', 'ssim'] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => setMetric(option)}
+            className={
+              metric === option
+                ? 'rounded bg-slate-900 px-3 py-1 font-medium text-white'
+                : 'rounded border border-slate-300 px-3 py-1 text-slate-700'
+            }
+          >
+            {option === 'de00' ? 'ΔE00（色の差）' : 'SSIM（構造の差）'}
+          </button>
+        ))}
+        <span className="text-slate-600 text-xs">
+          品質 {current.jpegQuality} / {current.chromaSubsampling}
+          {current === answered ? '（回答した条件）' : ''}
+        </span>
+      </div>
+
+      <img
+        src={metric === 'de00' ? current.de00Url : current.ssimUrl}
+        alt={`${metric === 'de00' ? 'ΔE00' : 'SSIM'} の劣化オーバーレイ`}
+        className="rounded border border-slate-200"
+      />
+
+      <p className="text-slate-600 text-xs">
+        {metric === 'de00' ? (
+          <>
+            <strong>ΔE00（CIEDE2000）</strong> — 色の差。輪郭の<strong>上</strong>に乗ります。
+            マゼンタが濃いほど大きい（上限 5 で固定。素材ごとに正規化していません）。
+          </>
+        ) : (
+          <>
+            <strong>1 − SSIM</strong> — 構造の差。8×8 窓で均されるため、輪郭の
+            <strong>外側</strong>が光ります（上限 0.25 で固定）。
+            <strong>ΔE00 とは別の場所を指します。</strong>
+          </>
+        )}
+      </p>
+
+      {current.over2Pct !== null ? (
+        <p className="text-slate-700 text-sm">
+          この条件では <strong>{current.over2Pct.toFixed(1)}%</strong> の画素が ΔE00 &gt; 2
+          （目で違いが分かる目安）を超えています。
+        </p>
+      ) : null}
+
+      {others.length > 0 ? (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-slate-600">
+            他の条件の劣化を見る（{result.verification.length} 通り）
+          </summary>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {result.verification.map((view) => {
+              const isCurrent = view === current
+              return (
+                <button
+                  key={`${view.jpegQuality}-${view.chromaSubsampling}`}
+                  type="button"
+                  onClick={() => setShown(view)}
+                  className={
+                    isCurrent
+                      ? 'rounded bg-slate-900 px-2 py-1 font-mono text-white text-xs'
+                      : 'rounded border border-slate-300 px-2 py-1 font-mono text-slate-700 text-xs'
+                  }
+                >
+                  q{view.jpegQuality}/{view.chromaSubsampling}
+                </button>
+              )
+            })}
+          </div>
+        </details>
+      ) : null}
+    </section>
   )
 }
 
