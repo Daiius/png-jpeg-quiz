@@ -28,7 +28,14 @@ export const sourceMetaSchema = z.object({
   tags: z.array(z.string()).default([]),
   /** 透過素材はここで指定した色に合成してから使う（prd/01 §1） */
   preprocess: z.object({ flatten: z.string().optional() }).optional(),
-  is_ai_generated: z.boolean().optional(),
+  /**
+   * 🔒 **必須。** 生成 AI で作られたかどうかには**開示義務がある**（prd/05 §1.1）。
+   *
+   * ⚠ **省略を `false` として扱わない。** 書き忘れがそのまま
+   * 「AI ではない」という**断定**になり、開示義務を静かに落とす。
+   * 出典・ライセンスと同じ扱いで、**宣言が無ければ素材を採用しない。**
+   */
+  is_ai_generated: z.boolean(),
   derivation: z.record(z.string(), z.unknown()).optional(),
   note: z.string().optional(),
   caution: z.string().optional(),

@@ -31,6 +31,10 @@ export default function HomePage() {
         条件すべての結果を表示します。
       </p>
 
+      <a className="text-blue-700 text-sm underline" href="/credits">
+        素材のクレジット
+      </a>
+
       <a className="text-blue-700 text-sm underline" href="/conditions">
         エンコード条件の詳細を見る
       </a>

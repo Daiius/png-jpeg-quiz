@@ -51,12 +51,13 @@ encode_profile ──< question_encoding >── question ──── question_
 | `flat_ratio` | real | **隣接ペアのうち RGB が完全一致する割合**（定義は [05](./05-content-pipeline.md) §3.1）。PNG の効きを直接説明する指標 |
 | `tags` | json | `noise` / `gradient` / `flat` / `text` / `low-color` / `blurred` など |
 | `is_synthetic` | bool | 意地悪問題として加工したもの |
+| `is_ai_generated` | bool | 生成 AI で作られた素材か（`meta.json` の宣言）。**開示義務がある**（[05](./05-content-pipeline.md) §1.1）。⚠ `is_synthetic` とは別物で、**出典サイト名から推測してはいけない** |
 | `derivation` | json \| null | 加工内容（元素材 ID・操作列・**背景合成の色**） |
 | `source` | json | 出典 URL・作者・**ライセンス**・取得日 |
 | `explanation` | text \| null | 一行解説 |
 | `status` | enum | `draft` / `published` / `retired` |
 
-- 🔒 **`color_count` / `flat_ratio` / `tags` / `is_synthetic` / `derivation` は回答前のレスポンスに含めない。**
+- 🔒 **`color_count` / `flat_ratio` / `tags` / `is_synthetic` / `is_ai_generated` / `derivation` は回答前のレスポンスに含めない。**
   いずれも「PNG が効く画像か」を直接示すので、**答えの方向が漏れる**（[04](./04-session-and-integrity.md) §3.5）。
   回答前に渡してよいのは **`display` の URL・寸法・`category`** だけ（[02](./02-architecture.md) §4-2）。
   `category`（写真 / イラスト …）は**画像を見れば分かる**ので、追加の手がかりにならない。

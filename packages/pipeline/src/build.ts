@@ -121,6 +121,9 @@ async function buildOne(
       flatRatio: image.flatRatio,
       tags: asset.meta.tags,
       isSynthetic: false,
+      // 🔒 `meta.json` の宣言は必須（source.ts）。ここで `?? false` に倒さない ──
+      // 書き忘れが「AI ではない」という断定になり、開示義務を静かに落とす（prd/05 §1.1）
+      isAiGenerated: asset.meta.is_ai_generated,
       derivation,
       source: asset.meta.source,
       explanation: asset.meta.explanation ?? null,
@@ -134,6 +137,9 @@ async function buildOne(
         colorCount: Math.min(image.colorCount, 257),
         flatRatio: image.flatRatio,
         tags: asset.meta.tags,
+        // 🔒 `meta.json` の宣言は必須（source.ts）。ここで `?? false` に倒さない ──
+        // 書き忘れが「AI ではない」という断定になり、開示義務を静かに落とす（prd/05 §1.1）
+        isAiGenerated: asset.meta.is_ai_generated,
         derivation,
         source: asset.meta.source,
         explanation: asset.meta.explanation ?? null,
