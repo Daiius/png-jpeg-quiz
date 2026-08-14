@@ -19,9 +19,7 @@ import {
   JPEG_QUALITIES,
   type PoolEntry,
   type ProfileResult,
-  QUESTION_TIME_LIMIT_MS,
   type QuestionView,
-  type SubmitAction,
   standard30,
   type VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
@@ -60,12 +58,7 @@ export async function serveNextQuestion(row: SessionRow): Promise<QuestionView |
   const current = served[0]
   if (current) {
     if (current.answeredAt) return null
-    return await toQuestionView(
-      current.questionId,
-      row.currentIndex,
-      row.questionCount,
-      current.servedAt,
-    )
+    return await toQuestionView(current.questionId, row.currentIndex, row.questionCount)
   }
 
   if (row.currentIndex >= row.questionCount) return null
@@ -111,14 +104,13 @@ export async function serveNextQuestion(row: SessionRow): Promise<QuestionView |
     difficultyAtServe: picked.difficulty,
   })
 
-  return await toQuestionView(picked.questionId, row.currentIndex, row.questionCount, servedAt)
+  return await toQuestionView(picked.questionId, row.currentIndex, row.questionCount)
 }
 
 async function toQuestionView(
   questionId: string,
   index: number,
   total: number,
-  servedAt: Date,
 ): Promise<QuestionView | null> {
   const rows = await getDatabase()
     .select({
@@ -139,9 +131,6 @@ async function toQuestionView(
     questionId: row.id,
     index,
     total,
-    timeLimitMs: QUESTION_TIME_LIMIT_MS,
-    // サーバが今この瞬間に計算した残り時間（prd/04 §5）
-    remainingMs: Math.max(0, QUESTION_TIME_LIMIT_MS - (Date.now() - servedAt.getTime())),
     displayUrl: assetUrl(row.objectKey),
     width: row.width,
     height: row.height,
@@ -154,19 +143,19 @@ export type SubmitOutcome =
   | { status: 'not-current' }
   | { status: 'already-answered' }
   | { status: 'too-fast' }
-  /** `timeout` が届いたが、サーバ基準ではまだ期限前。クライアントは待ってから再送する */
-  | { status: 'not-expired'; remainingMs: number }
 
 /**
  * 回答の受付と採点。
  *
  * 🔒 クライアントから受け取るのは「どちらを選んだか」だけ。
  * 経過時間はサーバの `served_at` 基準で測る（prd/03 §7）。
+ *
+ * ⚠ **制限時間は無い**（prd/04 §5.1）。経過時間は記録と「速すぎる」判定にだけ使う。
  */
 export async function submitAnswer(
   row: SessionRow,
   questionId: string,
-  action: SubmitAction,
+  chosen: Answer,
 ): Promise<SubmitOutcome> {
   const database = getDatabase()
 
@@ -201,23 +190,12 @@ export async function submitAnswer(
 
   // 🔒 経過時間はサーバの `served_at` 基準（prd/03 §7）。クライアントの時計は使わない
   const elapsedMs = Date.now() - served.servedAt.getTime()
-  const timing = classifyTiming(elapsedMs)
-
-  if (action === 'timeout') {
-    // 🔒 **期限を過ぎたかどうかはサーバだけが決める。**
-    // 端末の時計が進んでいると期限前に timeout が飛んでくる。まだ期限前なら受け付けない
-    if (timing !== 'timed-out') {
-      return { status: 'not-expired', remainingMs: QUESTION_TIME_LIMIT_MS - elapsedMs }
-    }
-  } else if (timing === 'too-fast') {
+  if (classifyTiming(elapsedMs) === 'too-fast') {
     // 🔒 人間に不可能な速さは受け付けない（prd/04 §5 / T6）
     return { status: 'too-fast' }
   }
 
-  // 🔒 時間切れは不正解扱い（prd/04 §5）。方向を持たないので `chosen` は null
-  const timedOut = timing === 'timed-out'
-  const chosen: Answer | null = action === 'timeout' ? null : action
-  const correct = !timedOut && chosen !== null && encoding.answer === chosen
+  const correct = encoding.answer === chosen
 
   // 得点はサプライザル方式（prd/06 §1）。🔒 実測正答率は混ぜない
   const profileRows = await database
@@ -257,7 +235,6 @@ export async function submitAnswer(
       .update(sessionQuestion)
       .set({
         answeredAt: new Date(),
-        // 時間切れは「どちらも選んでいない」= null。`answered_at` が入っているので未回答とは区別できる
         answer: chosen,
         isCorrect: correct,
         elapsedMs,
@@ -415,7 +392,6 @@ export async function submitAnswer(
       displayUrl: assetUrl(detail?.displayKey ?? ''),
       log2Ratio: encoding.log2Ratio,
       awardedPoints,
-      timedOut,
       explanation: detail?.explanation ?? null,
       source: (detail?.source ?? {}) as Record<string, unknown>,
       profileResults,

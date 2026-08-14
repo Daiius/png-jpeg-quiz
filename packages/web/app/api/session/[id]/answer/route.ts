@@ -26,16 +26,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (outcome.status === 'already-answered') {
     return NextResponse.json({ error: 'already answered' }, { status: 409 })
   }
-  // 🔒 人間に不可能な速さ（prd/04 §5 / T6）
+  // 🔒 人間に不可能な速さ（prd/04 §5 / T6）。⚠ 遅い側の上限は無い（制限時間は廃止）
   if (outcome.status === 'too-fast') {
     return NextResponse.json({ error: 'too fast' }, { status: 429 })
-  }
-  // 🔒 まだ期限前。クライアントの時計が進んでいる（prd/04 §2）
-  if (outcome.status === 'not-expired') {
-    return NextResponse.json(
-      { error: 'not expired yet', remainingMs: outcome.remainingMs },
-      { status: 425 },
-    )
   }
   return NextResponse.json(outcome.result)
 }
