@@ -81,13 +81,14 @@ packages/
 
 ```bash
 pnpm dev          # docker compose watch（db + web）
-pnpm dev:remote   # 同上 + .env.remote（リモート dev 公開。prd/02 §6.1。:logs / :down あり）
+pnpm dev:remote   # 同上 + .env.remote（リモート dev 公開。prd/02 §6.2。:logs / :down あり）
 pnpm typecheck    # 全パッケージ tsc --noEmit
 pnpm lint         # Biome lint
 pnpm format       # Biome format
 pnpm test         # Vitest
-pnpm db:migrate   # Drizzle マイグレーション適用
-pnpm db:seed      # encode_profile などのシード投入（冪等）
+# ⚠ DB を触るものは compose の web コンテナ内で実行する（MySQL はホストに出していない。prd/02 §6.1）
+docker compose exec web pnpm db:migrate   # Drizzle マイグレーション適用
+docker compose exec web pnpm db:seed      # encode_profile などのシード投入（冪等）
 pnpm quiz:build   # 素材 → 問題データ + アセット生成
 pnpm quiz:upload  # 生成アセットを R2 へ同期
 ```
