@@ -7,7 +7,7 @@ import type {
   QuestionView,
   VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 /**
  * 出題 → 2 択 → 正解画面（prd/04 §4）。
@@ -27,11 +27,195 @@ function formatBytes(bytes: number): string {
   return `${bytes.toLocaleString('ja-JP')} B`
 }
 
+/**
+ * 読み物（説明文・ボタン・表）を 720px に収める（prd/01 §7.1）。
+ * ⚠ 画像はこれで包まない。画像だけがビューポート幅いっぱいに出るのが今の設計。
+ */
+function Narrow({ children }: { children: ReactNode }) {
+  return <div className="mx-auto w-full max-w-3xl px-6">{children}</div>
+}
+
+/** ダイアログで切り替える対象。正解画面では PNG / JPEG の 2 枚、出題中は 1 枚だけ */
+interface ZoomSource {
+  label: string
+  url: string
+  alt: string
+}
+
+/** 開くダイアログの中身。どの画像からタップされたかで初期選択が変わる */
+interface ZoomRequest {
+  sources: ZoomSource[]
+  index: number
+}
+
+const ZOOM_STEPS = ['fit', 1, 2, 4] as const
+type ZoomStep = (typeof ZOOM_STEPS)[number]
+
+/**
+ * 拡大ダイアログ（prd/01 §7.3）。
+ *
+ * - **fit で開く。** いきなり 1:1 だと大きい素材では一部しか映らず、どこを見ているか分からない。
+ * - ⚠ **独自のピンチ・パンを実装しない。** パンはネイティブのスクロール、さらなる拡大は
+ *   ブラウザのピンチに任せる（モバイルのピンチズーム許可と二重にしない）。
+ * - 🔒 A/B 切替では**倍率とスクロール位置を保持する**。同じ位置での変化を見せるのが目的で、
+ *   位置がずれると切替の意味が失われる。そのため 2 枚を同じグリッドセルに重ねて置き、
+ *   `src` を差し替えるのではなく**可視性だけを切り替える**（読み込みのちらつきも消える）。
+ */
+function ZoomDialog({
+  sources,
+  width,
+  height,
+  initialIndex,
+  onClose,
+}: {
+  sources: readonly ZoomSource[]
+  width: number
+  height: number
+  initialIndex: number
+  onClose: () => void
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const [step, setStep] = useState<ZoomStep>('fit')
+  const [index, setIndex] = useState(initialIndex)
+
+  useEffect(() => {
+    // showModal でトップレイヤに出す。Esc と背景（::backdrop）はブラウザが面倒をみる
+    dialogRef.current?.showModal()
+  }, [])
+
+  const current = sources[index] ?? sources[0]
+  if (!current) return null
+
+  return (
+    <dialog
+      ref={dialogRef}
+      onClose={onClose}
+      className="h-dvh max-h-none w-dvw max-w-none bg-slate-900 p-0 text-white backdrop:bg-black/70"
+    >
+      <div className="flex h-full flex-col">
+        <div className="flex flex-wrap items-center gap-2 border-slate-700 border-b px-4 py-2 text-sm">
+          {ZOOM_STEPS.map((option) => (
+            <button
+              key={String(option)}
+              type="button"
+              onClick={() => setStep(option)}
+              className={
+                step === option
+                  ? 'rounded bg-white px-3 py-1 font-medium text-slate-900'
+                  : 'rounded border border-slate-600 px-3 py-1'
+              }
+            >
+              {option === 'fit' ? '全体' : option === 1 ? '1:1' : `${option}x`}
+            </button>
+          ))}
+
+          {/* 🔒 出題中は sources が 1 枚なので、この切替は出ない（prd/01 §7.3） */}
+          {sources.length > 1 ? (
+            <span className="ml-2 flex gap-2">
+              {sources.map((source, i) => (
+                <button
+                  key={source.url}
+                  type="button"
+                  onClick={() => setIndex(i)}
+                  className={
+                    index === i
+                      ? 'rounded bg-white px-3 py-1 font-medium text-slate-900'
+                      : 'rounded border border-slate-600 px-3 py-1'
+                  }
+                >
+                  {source.label}
+                </button>
+              ))}
+            </span>
+          ) : null}
+
+          <span className="ml-auto flex items-center gap-3">
+            <span className="tabular-nums text-slate-400 text-xs">
+              原寸 {width}×{height}
+            </span>
+            <button
+              type="button"
+              onClick={() => dialogRef.current?.close()}
+              className="rounded border border-slate-600 px-3 py-1"
+              aria-label="閉じる"
+            >
+              ✕
+            </button>
+          </span>
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          {/* fit は 1 枚のセルをコンテナいっぱいに広げて `object-contain` で letterbox する。
+              ⚠ `max-w/max-h` だけでは縮小しかせず、原寸より小さい画像が拡大されない。
+              倍率指定のときは内容幅に合わせ、コンテナより小さい間は中央に置く */}
+          <div
+            className={
+              step === 'fit'
+                ? 'grid h-full w-full'
+                : 'grid min-h-full w-max min-w-full place-items-center'
+            }
+          >
+            {sources.map((source, i) => (
+              <img
+                key={source.url}
+                src={source.url}
+                width={width}
+                height={height}
+                alt={source.alt}
+                // 🔒 拡大しても実物と 1 画素も違わないものを見せる（prd/01 §7.2）
+                style={
+                  step === 'fit'
+                    ? undefined
+                    : { width: width * step, maxWidth: 'none', height: 'auto' }
+                }
+                className={`col-start-1 row-start-1 [image-rendering:pixelated] ${
+                  step === 'fit' ? 'h-full w-full object-contain' : ''
+                } ${i === index ? '' : 'invisible'}`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </dialog>
+  )
+}
+
+/**
+ * インラインの画像（prd/01 §7.1）。**ビューポート幅いっぱい**に出し、タップで拡大ダイアログを開く。
+ * `button` で包むのはキーボードからも開けるようにするため。
+ */
+function ZoomableImage({
+  url,
+  alt,
+  width,
+  height,
+  onOpen,
+}: {
+  url: string
+  alt: string
+  width: number
+  height: number
+  onOpen: () => void
+}) {
+  return (
+    <button type="button" onClick={onOpen} className="block w-full cursor-zoom-in">
+      <img
+        src={url}
+        width={width}
+        height={height}
+        alt={alt}
+        className="block h-auto w-full [image-rendering:pixelated]"
+      />
+    </button>
+  )
+}
+
 export function QuizClient({ sessionId }: { sessionId: string }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' })
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
   const [score, setScore] = useState(0)
+  const [zoom, setZoom] = useState<ZoomRequest | null>(null)
 
   const loadQuestion = useCallback(async () => {
     setPhase({ kind: 'loading' })
@@ -105,116 +289,178 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
   const { question } = phase
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-baseline justify-between text-slate-500 text-sm">
-        <p>
-          第 {question.index + 1} 問 / 全 {question.total} 問（{question.category}）
-        </p>
-        <p className="tabular-nums">{score.toFixed(2)} 点</p>
-      </div>
-
-      {/* display は R2 由来の外部 URL になる（M4）。next/image は挟まない */}
-      <img
-        src={question.displayUrl}
-        width={question.width}
-        height={question.height}
-        alt="出題画像"
-        className="max-h-[52vh] w-auto self-center rounded border border-slate-200 object-contain"
-      />
-
-      {phase.kind === 'question' ? (
-        <div className="flex flex-col gap-3">
-          <p className="font-medium">
+    // flex-1 と下の mt-auto で、内容が短いときも 2 択ボタンが画面下端に来る
+    // （モバイルでは画像が縦に余るので、そうしないとボタンが宙に浮く）
+    <div className="flex flex-1 flex-col gap-6">
+      <Narrow>
+        <div className="flex items-baseline justify-between text-slate-500 text-sm">
+          <p>
+            第 {question.index + 1} 問 / 全 {question.total} 問（{question.category}）
+          </p>
+          <p className="tabular-nums">{score.toFixed(2)} 点</p>
+        </div>
+        {phase.kind === 'question' ? (
+          // 問いは画像より先に読ませる。ボタンは sticky で下に常駐する
+          <p className="mt-2 font-medium">
             この画像を PNG と JPEG にすると、<strong>小さいのはどちら？</strong>
           </p>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={() => void submit(question, 'png')}
-              className="flex-1 rounded border border-slate-300 px-6 py-4 text-lg font-bold hover:bg-slate-50 disabled:opacity-50"
-            >
-              PNG
-            </button>
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={() => void submit(question, 'jpeg')}
-              className="flex-1 rounded border border-slate-300 px-6 py-4 text-lg font-bold hover:bg-slate-50 disabled:opacity-50"
-            >
-              JPEG
-            </button>
-          </div>
+        ) : null}
+      </Narrow>
+
+      {/* 🔒 幅いっぱいに出す（prd/01 §7.1）。display は R2 由来の外部 URL になる（M4）ので
+          next/image は挟まない。
+          ⚠ 回答後は出さない。すぐ下に PNG / JPEG の実物が同じ幅で並ぶので、3 枚目は
+          スクロールを増やすだけになる */}
+      {phase.kind === 'question' ? (
+        <ZoomableImage
+          url={question.displayUrl}
+          alt="出題画像"
+          width={question.width}
+          height={question.height}
+          onOpen={() =>
+            setZoom({
+              sources: [{ label: '出題画像', url: question.displayUrl, alt: '出題画像' }],
+              index: 0,
+            })
+          }
+        />
+      ) : null}
+
+      {phase.kind === 'question' ? (
+        // 🔒 画像が縦に長くてもボタンを見せ続け、「全体を見ないまま答える」流れを作らない（prd/01 §7.1）
+        <div className="sticky bottom-0 z-10 mt-auto border-slate-200 border-t bg-white/95 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
+          <Narrow>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => void submit(question, 'png')}
+                className="flex-1 rounded border border-slate-300 px-6 py-4 text-lg font-bold hover:bg-slate-50 disabled:opacity-50"
+              >
+                PNG
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => void submit(question, 'jpeg')}
+                className="flex-1 rounded border border-slate-300 px-6 py-4 text-lg font-bold hover:bg-slate-50 disabled:opacity-50"
+              >
+                JPEG
+              </button>
+            </div>
+          </Narrow>
         </div>
       ) : (
-        <ResultPanel result={phase.result} onNext={() => void loadQuestion()} />
+        <ResultPanel
+          result={phase.result}
+          width={question.width}
+          height={question.height}
+          onZoom={setZoom}
+          onNext={() => void loadQuestion()}
+        />
       )}
+
+      {zoom ? (
+        <ZoomDialog
+          sources={zoom.sources}
+          width={question.width}
+          height={question.height}
+          initialIndex={zoom.index}
+          onClose={() => setZoom(null)}
+        />
+      ) : null}
     </div>
   )
 }
 
 /** 回答後は全部見せる（prd/04 §4）。ここは意図的に開示側。 */
-function ResultPanel({ result, onNext }: { result: AnswerResult; onNext: () => void }) {
+function ResultPanel({
+  result,
+  width,
+  height,
+  onZoom,
+  onNext,
+}: {
+  result: AnswerResult
+  width: number
+  height: number
+  onZoom: (request: ZoomRequest) => void
+  onNext: () => void
+}) {
   const winner = result.answer === 'png' ? 'PNG' : 'JPEG'
+  // 🔒 2 枚を 1 つのダイアログに渡す。同じ位置での A/B 切替が目的（prd/01 §7.3）
+  const sources: ZoomSource[] = [
+    { label: 'PNG', url: result.pngUrl, alt: 'PNG 版' },
+    { label: 'JPEG', url: result.jpegUrl, alt: 'JPEG 版' },
+  ]
+
   return (
     <div className="flex flex-col gap-4">
-      <p
-        className={
-          result.correct ? 'text-xl font-bold text-green-700' : 'text-xl font-bold text-red-700'
-        }
-      >
-        {result.correct ? '正解' : '不正解'} — 小さいのは {winner} でした
-        {result.awardedPoints > 0 ? (
-          <span className="ml-2 text-base text-slate-600">
-            +{result.awardedPoints.toFixed(2)} 点
-          </span>
-        ) : null}
-      </p>
+      <Narrow>
+        <p
+          className={
+            result.correct ? 'text-xl font-bold text-green-700' : 'text-xl font-bold text-red-700'
+          }
+        >
+          {result.correct ? '正解' : '不正解'} — 小さいのは {winner} でした
+          {result.awardedPoints > 0 ? (
+            <span className="ml-2 text-base text-slate-600">
+              +{result.awardedPoints.toFixed(2)} 点
+            </span>
+          ) : null}
+        </p>
+      </Narrow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <figure className="flex flex-col gap-2">
-          <figcaption className="text-sm font-medium">
-            PNG — {formatBytes(result.pngBytes)}
-          </figcaption>
-          {/* 実物をそのまま配り、開発者ツールで転送サイズを検証できるようにする（prd/04 §4） */}
-          <img src={result.pngUrl} alt="PNG 版" className="rounded border border-slate-200" />
+      {/* 実物をそのまま配り、開発者ツールで転送サイズを検証できるようにする（prd/04 §4）。
+          🔒 横並びにすると各々が半分の幅になり、劣化が見えない。縦積みで幅いっぱい（prd/01 §7.1） */}
+      {sources.map((source, index) => (
+        <figure key={source.url} className="flex flex-col gap-2">
+          <Narrow>
+            <figcaption className="font-medium text-sm">
+              {source.label} — {formatBytes(index === 0 ? result.pngBytes : result.jpegBytes)}
+            </figcaption>
+          </Narrow>
+          <ZoomableImage
+            url={source.url}
+            alt={source.alt}
+            width={width}
+            height={height}
+            onOpen={() => onZoom({ sources, index })}
+          />
         </figure>
-        <figure className="flex flex-col gap-2">
-          <figcaption className="text-sm font-medium">
-            JPEG — {formatBytes(result.jpegBytes)}
-          </figcaption>
-          {/* 同上 */}
-          <img src={result.jpegUrl} alt="JPEG 版" className="rounded border border-slate-200" />
-        </figure>
-      </div>
+      ))}
 
-      <p className="text-sm text-slate-600">
-        サイズ比 log2(PNG/JPEG) = {result.log2Ratio.toFixed(2)}
-        {result.explanation ? ` — ${result.explanation}` : ''}
-      </p>
+      <Narrow>
+        <div className="flex flex-col gap-4">
+          <p className="text-slate-600 text-sm">
+            サイズ比 log2(PNG/JPEG) = {result.log2Ratio.toFixed(2)}
+            {result.explanation ? ` — ${result.explanation}` : ''}
+          </p>
 
-      <VerificationPanel result={result} />
+          <VerificationPanel result={result} />
 
-      <ProfileResultsTable results={result.profileResults} />
+          <ProfileResultsTable results={result.profileResults} />
 
-      <details className="text-sm text-slate-600">
-        <summary className="cursor-pointer">出典とライセンス</summary>
-        <pre className="mt-2 overflow-x-auto rounded bg-slate-50 p-3 text-xs">
-          {JSON.stringify(result.source, null, 2)}
-        </pre>
-      </details>
+          <details className="text-slate-600 text-sm">
+            <summary className="cursor-pointer">出典とライセンス</summary>
+            <pre className="mt-2 overflow-x-auto rounded bg-slate-50 p-3 text-xs">
+              {JSON.stringify(result.source, null, 2)}
+            </pre>
+          </details>
 
-      <p className="text-xs text-slate-500">
-        ⚠ サイズだけで選ぶものではありません（劣化・透過・用途）。とくに僅差のときは。
-      </p>
+          <p className="text-slate-500 text-xs">
+            ⚠ サイズだけで選ぶものではありません（劣化・透過・用途）。とくに僅差のときは。
+          </p>
 
-      <button
-        type="button"
-        onClick={onNext}
-        className="self-start rounded bg-slate-900 px-6 py-3 font-bold text-white hover:bg-slate-700"
-      >
-        {result.hasNext ? '次の問題へ' : '結果を見る'}
-      </button>
+          <button
+            type="button"
+            onClick={onNext}
+            className="self-start rounded bg-slate-900 px-6 py-3 font-bold text-white hover:bg-slate-700"
+          >
+            {result.hasNext ? '次の問題へ' : '結果を見る'}
+          </button>
+        </div>
+      </Narrow>
     </div>
   )
 }
