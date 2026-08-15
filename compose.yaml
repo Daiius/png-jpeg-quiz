@@ -4,7 +4,7 @@
 # ローカル dev とリモート dev 公開（前段プロキシ越しに手元ブラウザから使う）で compose を分けない。
 # 単一の compose.yaml を環境変数でパラメータ化し、remote 差分は .env.remote に集約する
 # （.env.remote.example 参照。pnpm dev:remote = docker compose --env-file .env --env-file .env.remote watch）。
-# prd/02 §6.1。
+# prd/02 §6.2。
 #
 #   | 差分            | ローカル既定       | remote（.env.remote）           |
 #   |-----------------|--------------------|---------------------------------|
@@ -52,7 +52,7 @@ services:
     ports:
       # ホストに出すのは web だけ（db は compose 網内のみ）。
       # WEB_BIND でバインドアドレスを絞れる。remote 公開時は 127.0.0.1 にして、
-      # 前段プロキシからしか届かない唯一の外向きの口にする（§6.1）。
+      # 前段プロキシからしか届かない唯一の外向きの口にする（§6.2）。
       - '${WEB_BIND:-0.0.0.0}:${WEB_PORT:-3000}:3000'
     volumes:
       # pnpm quiz:build の成果物（M4 までは web がここから配信する）。

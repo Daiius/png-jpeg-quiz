@@ -133,15 +133,31 @@ interface EncodedLocator { urlFor(assetId: string): string }
 | コマンド | 内容 |
 |---|---|
 | `pnpm dev` | docker compose watch |
-| `pnpm dev:remote` | 同上 ＋ `.env.remote`（リモート dev 公開。→ §6.1。`:logs` / `:down` あり） |
+| `pnpm dev:remote` | 同上 ＋ `.env.remote`（リモート dev 公開。→ §6.2。`:logs` / `:down` あり） |
 | `pnpm typecheck` / `lint` / `format` / `test` | tsc / Biome / Vitest |
-| `pnpm db:migrate` / `db:seed` | Drizzle マイグレーション / seed |
+| `pnpm db:migrate` / `db:seed` | Drizzle マイグレーション / seed。⚠ **コンテナ内で実行する**（下記） |
 | `pnpm quiz:build` | 素材 → 問題データ + アセット生成（[05](./05-content-pipeline.md)） |
 | `pnpm quiz:upload` | 生成アセットを R2 へ同期 |
 
 - 環境変数の実体（`.env*`）は**コミットしない**。雛形 `*.example` を置く。
 
-### 6.1 リモート dev 公開（`pnpm dev:remote`）
+### 6.1 DB を触るコマンドは `web` コンテナの中で実行する
+
+```bash
+docker compose exec web pnpm db:migrate   # マイグレーション適用
+docker compose exec web pnpm db:seed      # シード投入（冪等）
+```
+
+⚠ **ホストから直に `pnpm db:migrate` を叩いても届かない。** MySQL は compose 網内だけで動かしていて
+ホストにポートを出していない（他プロジェクトとの 3306 衝突を避けるため）。`web` コンテナには
+`DATABASE_URL` が注入済みで、ソースも `develop.watch` で同期されている。
+
+- 🔒 **起動時の自動適用にはしない**（§7）。本番は使い捨てコンテナ、開発はこの `exec`。
+  どちらも「適用した SQL」と「動いているコード」の版が構造的に一致する。
+- ホストから直接叩きたいときは `compose.override.yaml` で db に `ports` を足し、
+  `.env` の `DATABASE_URL`（`127.0.0.1:3306` 向け）を有効にする。
+
+### 6.2 リモート dev 公開（`pnpm dev:remote`）
 
 常駐マシン上の dev スタックを、前段プロキシ（TLS 終端＋認証を担うトンネル等）越しに手元ブラウザから
 使うための構成。**ローカル dev と compose / next 設定を分けない**。単一の `compose.yaml` と

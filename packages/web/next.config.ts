@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next'
 
 /**
- * リモート dev 公開（`pnpm dev:remote`。prd/02 §6.1）で、前段プロキシの公開ホスト名を
+ * リモート dev 公開（`pnpm dev:remote`。prd/02 §6.2）で、前段プロキシの公開ホスト名を
  * dev サーバに許可する。
  *
  * ⚠ Next 16 の dev サーバは `/_next/*` と `/__nextjs*` への**クロスオリジン要求を既定で
