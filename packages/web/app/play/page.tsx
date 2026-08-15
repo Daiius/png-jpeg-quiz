@@ -24,8 +24,10 @@ export default async function PlayPage({
     )
   }
 
+  // ⚠ ここで幅を絞らない。画像はビューポート幅いっぱいに出し、読み物だけ 720px に収める
+  // （prd/01 §7.1）。絞る役目は QuizClient 内の <Narrow> が持つ。
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-10">
+    <main className="flex min-h-dvh flex-col gap-6 py-10">
       <QuizClient sessionId={session} />
     </main>
   )
