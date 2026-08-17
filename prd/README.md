@@ -68,5 +68,6 @@
 5. [05-content-pipeline.md](./05-content-pipeline.md) — 素材 → エンコード → 正解確定 → 難易度 → 蓄積
 6. [06-ranking.md](./06-ranking.md) — **得点式** / ランキング / 結果画面の統計 / 分析
 7. [07-roadmap.md](./07-roadmap.md) — フェーズ分け
+8. [08-visual-design.md](./08-visual-design.md) — **色トークン** / テーマ（暗室・ダーク）/ 幅の規則
 
 > 決定ログ: [`_grilling/decisions.md`](./_grilling/decisions.md) / 実測: [`_grilling/measurements.md`](./_grilling/measurements.md)

@@ -31,6 +31,7 @@
 | [prd/05-content-pipeline.md](./prd/05-content-pipeline.md) | 素材 → エンコード → 正解確定 → 難易度 → 蓄積 |
 | [prd/06-ranking.md](./prd/06-ranking.md) | **得点式** / モード / ランキング / 結果統計 / 分析 |
 | [prd/07-roadmap.md](./prd/07-roadmap.md) | フェーズ分け |
+| [prd/08-visual-design.md](./prd/08-visual-design.md) | **色トークン** / テーマ（暗室・ダーク）/ 幅の規則 |
 
 ## 🔒 絶対に外さない設計原則
 
@@ -63,6 +64,10 @@
 
 - **`sharp.png()` は `effort` を明示しないと 4 倍のサイズになる。** `compressionLevel` はほぼ効かず、
   `palette: false` を明示すると `effort` 指定が無視される。
+- **Biome は `@theme` をパースできず lint 全体が落ちる。** `biome.json` に
+  `css.parser.tailwindDirectives: true` が要る（`@import` だけの頃は顕在化しない）。
+- **`<dialog>` / `<select>` は UA 既定の面（`canvas` = 白）を持つ。** トークンを当てないと
+  ダークで白いまま浮く（[prd/08](./prd/08-visual-design.md) §3）。
 - **可逆パレット化は oxipng が担う。** sharp の `palette: true` は非可逆量子化なので使わない。
 - **リサイズは PNG を大きく不利にする。** 素材は原寸で扱う。
 - 根拠はすべて [`prd/_grilling/measurements.md`](./prd/_grilling/measurements.md)。
