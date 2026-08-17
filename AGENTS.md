@@ -91,6 +91,7 @@ pnpm typecheck    # 全パッケージ tsc --noEmit
 pnpm lint         # Biome lint
 pnpm format       # Biome format
 pnpm test         # Vitest
+pnpm test:e2e     # Playwright E2E（稼働中の dev スタックに対して実行。prd/02 §6.3）
 # ⚠ DB を触るものは compose の web コンテナ内で実行する（MySQL はホストに出していない。prd/02 §6.1）
 docker compose exec web pnpm db:migrate   # Drizzle マイグレーション適用
 docker compose exec web pnpm db:seed      # encode_profile などのシード投入（冪等）
