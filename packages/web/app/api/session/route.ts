@@ -1,6 +1,7 @@
 import { getDatabase, session } from '@png-jpeg-quiz/database'
 import { createSessionRequestSchema, defaultModeForPool, findMode } from '@png-jpeg-quiz/quiz-core'
 import { NextResponse } from 'next/server'
+import { devQuestionCount } from '@/dev.ts'
 import { resolveStartProfile } from '@/profiles.ts'
 import { newSessionId, newSessionSecret, setSessionCookie } from '@/session.ts'
 
@@ -37,19 +38,22 @@ export async function POST(request: Request) {
   }
 
   // 問題数はモードが決める（prd/02 §4-1）
-  const questionCount = mode.questionCount(profile.poolSize)
+  const modeQuestionCount = mode.questionCount(profile.poolSize)
 
   // 明示された mode がプールに対して大きすぎるときは、短縮せずに断る（practice を使ってもらう）
-  if (questionCount > profile.poolSize) {
+  if (modeQuestionCount > profile.poolSize) {
     return NextResponse.json(
       {
         error: 'not enough questions for this mode',
-        required: questionCount,
+        required: modeQuestionCount,
         available: profile.poolSize,
       },
       { status: 409 },
     )
   }
+
+  // dev / E2E に限り、完走を短くする口を通す（本番ビルドでは素通し）
+  const questionCount = devQuestionCount(modeQuestionCount)
 
   const sessionId = newSessionId()
   const secret = newSessionSecret()
