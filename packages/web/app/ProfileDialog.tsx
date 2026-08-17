@@ -17,16 +17,21 @@ import type { ProfileChoice } from '@/profiles.ts'
 export function ProfileDialog({
   currentProfileId,
   onStart,
+  startError,
   onClose,
 }: {
   currentProfileId: string | null
-  onStart: (profileId: string) => void
+  /** ⚠ **成功したときだけ親がこのダイアログを閉じる。** 失敗時は開いたままエラーを出す */
+  onStart: (profileId: string) => void | Promise<void>
+  /** 開始 API が失敗したときのメッセージ（親が持つ）。閉じずにここへ出す */
+  startError?: string | null
   onClose: () => void
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [profiles, setProfiles] = useState<ProfileChoice[] | null>(null)
   const [selected, setSelected] = useState(currentProfileId ?? STANDARD_PROFILE_ID)
   const [error, setError] = useState<string | null>(null)
+  const [starting, setStarting] = useState(false)
 
   useEffect(() => {
     dialogRef.current?.showModal()
@@ -146,11 +151,18 @@ export function ProfileDialog({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            disabled={playable.length === 0}
-            onClick={() => onStart(selected)}
+            disabled={playable.length === 0 || starting}
+            onClick={async () => {
+              setStarting(true)
+              try {
+                await onStart(selected)
+              } finally {
+                setStarting(false)
+              }
+            }}
             className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted disabled:opacity-50"
           >
-            この条件で始め直す
+            {starting ? '始めています…' : 'この条件で始め直す'}
           </button>
           <button
             type="button"
@@ -160,6 +172,8 @@ export function ProfileDialog({
             やめる
           </button>
         </div>
+        {/* 失敗しても閉じないので、ここがエラーの行き場になる（OCL-29E22A54） */}
+        {startError ? <p className="text-wrong text-sm">{startError}</p> : null}
         {error ? <p className="text-wrong text-sm">{error}</p> : null}
       </div>
     </dialog>
