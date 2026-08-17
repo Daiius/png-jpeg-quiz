@@ -171,6 +171,8 @@ encode_profile ──< question_encoding >── question ──── question_
 
 - **`(session_id, question_id)` に一意制約**（同一セッション内の重複出題を防ぐ）。
 - 回答は 1 回だけ。`answer` が既に入っている行への再 POST は拒否する。
+  ⚠ 例外は**同一回答の再送**で、採点・集計を再実行せずに保存済みの結果を返す
+  （応答を失ったクライアントのリトライ用。[02](./02-architecture.md) §4-2）。
 - **インデックス**: `(question_id, profile_id)`（問題別集計）、`(answered_at)`（時系列）。
 
 ## 8. `question_stats` — 集計（分析と回答後表示のみ）
