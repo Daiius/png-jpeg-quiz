@@ -20,6 +20,8 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
   const [error, setError] = useState<string | null>(null)
   // 二重起動でセッションを 2 つ作らない（開発時の StrictMode でも effect は 2 回走る）
   const startingRef = useRef(false)
+  // 🔒 開始をやめたときに、後から来た応答で進行中のセッションを置き換えないための中止装置
+  const abortRef = useRef<AbortController | null>(null)
 
   /**
    * セッションを開始する。`profileId` を省略すると**サーバが既定を選ぶ**（prd/06 §2.1）。
@@ -27,22 +29,30 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
    *
    * ⚠ **成否を返す。** 条件変更から呼ぶときは、失敗したらダイアログを閉じてはいけない
    * （既存セッションが残っているので、閉じるとエラーの行き場が無くなる）。
+   *
+   * 🔒 **中止されたら、成功していても反映しない。** 条件変更をやめた後に応答が届くと、
+   * いま遊んでいるセッションと URL を黙って差し替えてしまう（得点と進行が消える）。
    */
   const start = useCallback(async (chosenProfileId?: string): Promise<boolean> => {
     if (startingRef.current) return false
     startingRef.current = true
     setError(null)
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
       const response = await fetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(chosenProfileId === undefined ? {} : { profileId: chosenProfileId }),
+        signal: controller.signal,
       })
       if (!response.ok) {
         setError(`はじめられませんでした（${response.status}）`)
         return false
       }
       const body = await response.json()
+      // 応答を読み終えるまでの間にやめられていたら、ここから先は触らない
+      if (controller.signal.aborted) return false
       setSessionId(body.sessionId as string)
       setProfileId(body.profileId as string)
       // 🔒 リロードで同じセッションに戻れるようにする（prd/06 §2.1）。
@@ -50,10 +60,12 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
       window.history.replaceState(null, '', `/?session=${encodeURIComponent(body.sessionId)}`)
       return true
     } catch {
-      setError('はじめられませんでした（通信エラー）')
+      // ⚠ 自分で中止したときは失敗ではない。エラーを出さずに黙って引き下がる
+      if (!controller.signal.aborted) setError('はじめられませんでした（通信エラー）')
       return false
     } finally {
       startingRef.current = false
+      if (abortRef.current === controller) abortRef.current = null
     }
   }, [])
 
@@ -104,7 +116,10 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
             if (await start(chosen)) setDialogOpen(false)
           }}
           startError={error}
+          // 🔒 開始中に閉じたら中止する。放っておくと、閉じた後に届いた応答が
+          // 進行中のセッションを差し替える（OCL-44744DDD）
           onClose={() => {
+            abortRef.current?.abort()
             setError(null)
             setDialogOpen(false)
           }}
