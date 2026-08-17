@@ -24,9 +24,12 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
   /**
    * セッションを開始する。`profileId` を省略すると**サーバが既定を選ぶ**（prd/06 §2.1）。
    * 🔒 モードもサーバが決める（プールが 30 問に満たなければ practice）。
+   *
+   * ⚠ **成否を返す。** 条件変更から呼ぶときは、失敗したらダイアログを閉じてはいけない
+   * （既存セッションが残っているので、閉じるとエラーの行き場が無くなる）。
    */
-  const start = useCallback(async (chosenProfileId?: string) => {
-    if (startingRef.current) return
+  const start = useCallback(async (chosenProfileId?: string): Promise<boolean> => {
+    if (startingRef.current) return false
     startingRef.current = true
     setError(null)
     try {
@@ -37,7 +40,7 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
       })
       if (!response.ok) {
         setError(`はじめられませんでした（${response.status}）`)
-        return
+        return false
       }
       const body = await response.json()
       setSessionId(body.sessionId as string)
@@ -45,8 +48,10 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
       // 🔒 リロードで同じセッションに戻れるようにする（prd/06 §2.1）。
       // ⚠ router.replace ではなく history API。ページを再レンダリングさせない
       window.history.replaceState(null, '', `/?session=${encodeURIComponent(body.sessionId)}`)
+      return true
     } catch {
       setError('はじめられませんでした（通信エラー）')
+      return false
     } finally {
       startingRef.current = false
     }
@@ -93,11 +98,16 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
       {dialogOpen ? (
         <ProfileDialog
           currentProfileId={profileId}
-          onStart={(chosen) => {
-            setDialogOpen(false)
-            void start(chosen)
+          // 🔒 **成功したときだけ閉じる。** 先に閉じると、失敗しても既存セッションが
+          // 表示されたままなので「何も起きなかった」ようにしか見えない
+          onStart={async (chosen) => {
+            if (await start(chosen)) setDialogOpen(false)
           }}
-          onClose={() => setDialogOpen(false)}
+          startError={error}
+          onClose={() => {
+            setError(null)
+            setDialogOpen(false)
+          }}
         />
       ) : null}
     </main>
