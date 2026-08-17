@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   classifyTiming,
+  defaultModeForPool,
   findMode,
   MIN_ANSWER_MS,
   type ModeState,
   type PoolEntry,
   practice,
+  STANDARD_30_QUESTION_COUNT,
   standard30,
   targetDifficulty,
 } from './mode.ts'
@@ -119,6 +121,26 @@ describe('practice', () => {
     expect(practice.pickNext(state5, entries)?.questionId).toBe(
       standard30.pickNext(state5, entries)?.questionId,
     )
+  })
+})
+
+describe('defaultModeForPool', () => {
+  it('🔒 プールが 30 問未満なら practice。standard-30 を短くしない（prd/06 §2.1）', () => {
+    expect(defaultModeForPool(0).id).toBe('practice')
+    expect(defaultModeForPool(21).id).toBe('practice')
+    expect(defaultModeForPool(STANDARD_30_QUESTION_COUNT - 1).id).toBe('practice')
+  })
+
+  it('30 問ちょうどから standard-30', () => {
+    expect(defaultModeForPool(STANDARD_30_QUESTION_COUNT).id).toBe('standard-30')
+    expect(defaultModeForPool(200).id).toBe('standard-30')
+  })
+
+  it('選ばれたモードの問題数はプールに収まる（開始が 409 にならない）', () => {
+    for (const poolSize of [1, 5, 21, 29, 30, 31, 200]) {
+      const mode = defaultModeForPool(poolSize)
+      expect(mode.questionCount(poolSize)).toBeLessThanOrEqual(poolSize)
+    }
   })
 })
 

@@ -33,6 +33,7 @@ export { answerFor, log2Ratio, staticDifficulty } from './difficulty.ts'
 export {
   type AnswerTiming,
   classifyTiming,
+  defaultModeForPool,
   findMode,
   MIN_ANSWER_MS,
   MODES,

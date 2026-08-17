@@ -27,9 +27,14 @@ export type QuestionCategory = z.infer<typeof questionCategorySchema>
 
 // --- POST /api/session ---
 
+/**
+ * 🔑 **どちらも省略できる**（prd/06 §2.1）。省略は「おまかせ開始」で、
+ * サーバが標準条件と在庫に合うモードを選ぶ。`/` を開いた瞬間の出題がこの経路。
+ * 明示された値は従来どおりそのまま使う（条件を選び直したときの経路）。
+ */
 export const createSessionRequestSchema = z.object({
-  mode: z.string().min(1).max(32).default('standard-30'),
-  profileId: profileIdSchema,
+  mode: z.string().min(1).max(32).optional(),
+  profileId: profileIdSchema.optional(),
 })
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>
 
@@ -58,12 +63,24 @@ export const questionViewSchema = z.object({
 })
 export type QuestionView = z.infer<typeof questionViewSchema>
 
+/**
+ * セッションの文脈。**画面に「いまどの条件で遊んでいるか」を出すために要る**（prd/06 §2.1）。
+ *
+ * 🔒 プロファイルはプレイヤー自身が選んだ公開情報で、**個別の問題については何も語らない**
+ * （prd/04 §3.5）。⚠ 問題ごとに変わる値をここに足さないこと。
+ */
+const sessionContextShape = {
+  mode: z.string(),
+  profileId: profileIdSchema,
+}
+
 export const questionResponseSchema = z.union([
   z.object({
     status: z.literal('question'),
     question: questionViewSchema,
+    ...sessionContextShape,
   }),
-  z.object({ status: z.literal('finished') }),
+  z.object({ status: z.literal('finished'), ...sessionContextShape }),
 ])
 export type QuestionResponse = z.infer<typeof questionResponseSchema>
 
