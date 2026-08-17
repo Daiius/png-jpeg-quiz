@@ -70,16 +70,16 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
             onSessionContext={(context) => setProfileId(context.profileId)}
             header={
               <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs">
-                <span className="text-slate-500">条件</span>
-                <span className="font-mono text-slate-700">{profileId ?? '…'}</span>
+                <span className="text-ink-faint">条件</span>
+                <span className="font-mono text-ink-muted">{profileId ?? '…'}</span>
                 <button
                   type="button"
                   onClick={() => setDialogOpen(true)}
-                  className="rounded border border-slate-300 px-2 py-0.5 text-slate-700 hover:bg-slate-50"
+                  className="rounded border border-line-strong px-2 py-0.5 text-ink-muted hover:bg-sunken"
                 >
                   変える
                 </button>
-                <a href="#about" className="ml-auto text-slate-500 underline">
+                <a href="#about" className="ml-auto text-ink-faint underline">
                   このクイズについて ↓
                 </a>
               </div>
@@ -112,17 +112,17 @@ function StartingPlaceholder({ error, onRetry }: { error: string | null; onRetry
   return (
     <div className="flex flex-1 flex-col gap-6">
       <div className="mx-auto w-full max-w-3xl px-6">
-        <p className="text-slate-500 text-sm">{error ? 'エラー' : '出題を準備しています…'}</p>
+        <p className="text-ink-faint text-sm">{error ? 'エラー' : '出題を準備しています…'}</p>
         <p className="mt-2 font-medium">
           この画像を PNG と JPEG にすると、<strong>小さいのはどちら？</strong>
         </p>
         {error ? (
           <div className="mt-4 flex flex-col items-start gap-3">
-            <p className="text-red-600 text-sm">{error}</p>
+            <p className="text-wrong text-sm">{error}</p>
             <button
               type="button"
               onClick={onRetry}
-              className="rounded bg-slate-900 px-6 py-3 font-bold text-white hover:bg-slate-700"
+              className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted"
             >
               やり直す
             </button>
@@ -130,7 +130,7 @@ function StartingPlaceholder({ error, onRetry }: { error: string | null; onRetry
         ) : null}
       </div>
 
-      {!error ? <div className="h-64 w-full animate-pulse bg-slate-100" /> : null}
+      {!error ? <div className="h-64 w-full animate-pulse bg-sunken" /> : null}
     </div>
   )
 }

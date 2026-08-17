@@ -28,11 +28,44 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * 読み物（説明文・ボタン・表）を 720px に収める（prd/01 §7.1）。
+ * 読み物（説明文・ボタン）を 720px に収める（prd/01 §7.1）。
  * ⚠ 画像はこれで包まない。画像だけがビューポート幅いっぱいに出るのが今の設計。
+ *
+ * `wide` は**データの面**（検証ビュー・20 条件の表）だけに使う。読み物は 720px のまま。
+ * 🔒 ブレークポイントは `lg`（1024px）1 本。`md`（768px）は `max-w-3xl` と同値で境界にならない。
  */
-function Narrow({ children }: { children: ReactNode }) {
-  return <div className="mx-auto w-full max-w-3xl px-6">{children}</div>
+function Narrow({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+  return (
+    <div className={`mx-auto w-full px-6 ${wide ? 'max-w-3xl lg:max-w-5xl' : 'max-w-3xl'}`}>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * 拡大ダイアログへの導線（prd/01 §7.4）。
+ *
+ * 🔑 **モバイルでは幅いっぱいでも 0.30x にしかならず、ダイアログは必須であって装飾ではない。**
+ * にもかかわらず画像には「押せる」手がかりが無かった。幅 390px では画像の下に約 300px が
+ * 余るので、そこがこの導線の置き場になる（余白と導線不足が同時に解ける）。
+ *
+ * ⚠ 画像の上に重ねない。🔒 UI は画像の見えに干渉しない（同時対比で画素の色が変わる）。
+ */
+function ZoomHint({ label, onOpen }: { label: string; onOpen: () => void }) {
+  return (
+    <Narrow>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm hover:bg-sunken"
+      >
+        <span aria-hidden="true" className="text-ink-muted">
+          ⤢
+        </span>
+        {label}
+      </button>
+    </Narrow>
+  )
 }
 
 /** ダイアログで切り替える対象。正解画面では PNG / JPEG の 2 枚、出題中は 1 枚だけ */
@@ -90,10 +123,10 @@ function ZoomDialog({
     <dialog
       ref={dialogRef}
       onClose={onClose}
-      className="h-dvh max-h-none w-dvw max-w-none bg-slate-900 p-0 text-white backdrop:bg-black/70"
+      className="h-dvh max-h-none w-dvw max-w-none bg-darkroom p-0 text-darkroom-ink backdrop:bg-black/70"
     >
       <div className="flex h-full flex-col">
-        <div className="flex flex-wrap items-center gap-2 border-slate-700 border-b px-4 py-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 border-darkroom-line border-b px-4 py-2 text-sm">
           {ZOOM_STEPS.map((option) => (
             <button
               key={String(option)}
@@ -101,8 +134,8 @@ function ZoomDialog({
               onClick={() => setStep(option)}
               className={
                 step === option
-                  ? 'rounded bg-white px-3 py-1 font-medium text-slate-900'
-                  : 'rounded border border-slate-600 px-3 py-1'
+                  ? 'rounded bg-darkroom-ink px-3 py-1 font-medium text-darkroom'
+                  : 'rounded border border-darkroom-line px-3 py-1'
               }
             >
               {option === 'fit' ? '全体' : option === 1 ? '1:1' : `${option}x`}
@@ -119,8 +152,8 @@ function ZoomDialog({
                   onClick={() => setIndex(i)}
                   className={
                     index === i
-                      ? 'rounded bg-white px-3 py-1 font-medium text-slate-900'
-                      : 'rounded border border-slate-600 px-3 py-1'
+                      ? 'rounded bg-darkroom-ink px-3 py-1 font-medium text-darkroom'
+                      : 'rounded border border-darkroom-line px-3 py-1'
                   }
                 >
                   {source.label}
@@ -130,13 +163,13 @@ function ZoomDialog({
           ) : null}
 
           <span className="ml-auto flex items-center gap-3">
-            <span className="tabular-nums text-slate-400 text-xs">
+            <span className="tabular-nums text-darkroom-ink/60 text-xs">
               原寸 {width}×{height}
             </span>
             <button
               type="button"
               onClick={() => dialogRef.current?.close()}
-              className="rounded border border-slate-600 px-3 py-1"
+              className="rounded border border-darkroom-line px-3 py-1"
               aria-label="閉じる"
             >
               ✕
@@ -292,7 +325,7 @@ export function QuizClient({
   if (phase.kind === 'loading') {
     return (
       <Narrow>
-        <p className="text-slate-500">読み込み中…</p>
+        <p className="text-ink-faint">読み込み中…</p>
       </Narrow>
     )
   }
@@ -301,12 +334,9 @@ export function QuizClient({
     return (
       <Narrow>
         <div className="flex flex-col items-start gap-3">
-          <p className="text-red-600">{phase.message}</p>
+          <p className="text-wrong">{phase.message}</p>
           {/* 期限切れ・別ブラウザの URL を開いた場合はここに来る。新しい回を始められるようにする */}
-          <a
-            className="rounded bg-slate-900 px-6 py-3 font-bold text-white hover:bg-slate-700"
-            href="/"
-          >
+          <a className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted" href="/">
             新しく始める
           </a>
         </div>
@@ -319,13 +349,10 @@ export function QuizClient({
       <Narrow>
         <div className="flex flex-col items-start gap-4">
           <h2 className="font-bold text-2xl">おしまい</h2>
-          <p className="text-slate-600">
+          <p className="text-ink-muted">
             全問終わりました（{score.toFixed(2)} 点）。ランキングへの登録は M3 で実装します。
           </p>
-          <a
-            className="rounded bg-slate-900 px-6 py-3 font-bold text-white hover:bg-slate-700"
-            href="/"
-          >
+          <a className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted" href="/">
             もう一度遊ぶ
           </a>
         </div>
@@ -340,7 +367,7 @@ export function QuizClient({
     // （モバイルでは画像が縦に余るので、そうしないとボタンが宙に浮く）
     <div className="flex flex-1 flex-col gap-6">
       <Narrow>
-        <div className="flex items-baseline justify-between text-slate-500 text-sm">
+        <div className="flex items-baseline justify-between text-ink-faint text-sm">
           <p>
             第 {question.index + 1} 問 / 全 {question.total} 問（{question.category}）
           </p>
@@ -360,30 +387,42 @@ export function QuizClient({
           ⚠ 回答後は出さない。すぐ下に PNG / JPEG の実物が同じ幅で並ぶので、3 枚目は
           スクロールを増やすだけになる */}
       {phase.kind === 'question' ? (
-        <ZoomableImage
-          url={question.displayUrl}
-          alt="出題画像"
-          width={question.width}
-          height={question.height}
-          onOpen={() =>
-            setZoom({
-              sources: [{ label: '出題画像', url: question.displayUrl, alt: '出題画像' }],
-              index: 0,
-            })
-          }
-        />
+        <>
+          <ZoomableImage
+            url={question.displayUrl}
+            alt="出題画像"
+            width={question.width}
+            height={question.height}
+            onOpen={() =>
+              setZoom({
+                sources: [{ label: '出題画像', url: question.displayUrl, alt: '出題画像' }],
+                index: 0,
+              })
+            }
+          />
+          {/* 🔒 出してよいのは「拡大できる」ことだけ。倍率も寸法も答えの方向を示さない（prd/04 §3.5） */}
+          <ZoomHint
+            label="拡大して細部を見る"
+            onOpen={() =>
+              setZoom({
+                sources: [{ label: '出題画像', url: question.displayUrl, alt: '出題画像' }],
+                index: 0,
+              })
+            }
+          />
+        </>
       ) : null}
 
       {phase.kind === 'question' ? (
         // 🔒 画像が縦に長くてもボタンを見せ続け、「全体を見ないまま答える」流れを作らない（prd/01 §7.1）
-        <div className="sticky bottom-0 z-10 mt-auto border-slate-200 border-t bg-white/95 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
+        <div className="sticky bottom-0 z-10 mt-auto border-line border-t bg-ground/95 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
           <Narrow>
             <div className="flex gap-3">
               <button
                 type="button"
                 disabled={submitting}
                 onClick={() => void submit(question, 'png')}
-                className="flex-1 rounded border border-slate-300 px-6 py-4 text-lg font-bold hover:bg-slate-50 disabled:opacity-50"
+                className="flex-1 rounded border border-line-strong px-6 py-4 text-lg font-bold hover:bg-sunken disabled:opacity-50"
               >
                 PNG
               </button>
@@ -391,7 +430,7 @@ export function QuizClient({
                 type="button"
                 disabled={submitting}
                 onClick={() => void submit(question, 'jpeg')}
-                className="flex-1 rounded border border-slate-300 px-6 py-4 text-lg font-bold hover:bg-slate-50 disabled:opacity-50"
+                className="flex-1 rounded border border-line-strong px-6 py-4 text-lg font-bold hover:bg-sunken disabled:opacity-50"
               >
                 JPEG
               </button>
@@ -447,12 +486,12 @@ function ResultPanel({
       <Narrow>
         <p
           className={
-            result.correct ? 'text-xl font-bold text-green-700' : 'text-xl font-bold text-red-700'
+            result.correct ? 'text-xl font-bold text-correct' : 'text-xl font-bold text-wrong'
           }
         >
           {result.correct ? '正解' : '不正解'} — 小さいのは {winner} でした
           {result.awardedPoints > 0 ? (
-            <span className="ml-2 text-base text-slate-600">
+            <span className="ml-2 text-base text-ink-muted">
               +{result.awardedPoints.toFixed(2)} 点
             </span>
           ) : null}
@@ -478,32 +517,45 @@ function ResultPanel({
         </figure>
       ))}
 
+      {/* 🔑 2 枚の比較はレイアウトではなくダイアログが担う（prd/01 §7.3）。
+          横並びにするより、**同じ位置で切り替える**ほうが人間の目には差が見える */}
+      <ZoomHint
+        label="2 枚を同じ位置で切り替えて比べる"
+        onOpen={() => onZoom({ sources, index: 0 })}
+      />
+
+      <Narrow>
+        <p className="text-ink-muted text-sm">
+          サイズ比 log2(PNG/JPEG) = {result.log2Ratio.toFixed(2)}
+          {result.explanation ? ` — ${result.explanation}` : ''}
+        </p>
+      </Narrow>
+
+      {/* データの面は lg で広げる。読み物は 720px のまま（prd/01 §7.1） */}
+      <Narrow wide>
+        <div className="flex flex-col gap-4">
+          <VerificationPanel result={result} />
+          <ProfileResultsTable results={result.profileResults} />
+        </div>
+      </Narrow>
+
       <Narrow>
         <div className="flex flex-col gap-4">
-          <p className="text-slate-600 text-sm">
-            サイズ比 log2(PNG/JPEG) = {result.log2Ratio.toFixed(2)}
-            {result.explanation ? ` — ${result.explanation}` : ''}
-          </p>
-
-          <VerificationPanel result={result} />
-
-          <ProfileResultsTable results={result.profileResults} />
-
-          <details className="text-slate-600 text-sm">
+          <details className="text-ink-muted text-sm">
             <summary className="cursor-pointer">出典とライセンス</summary>
-            <pre className="mt-2 overflow-x-auto rounded bg-slate-50 p-3 text-xs">
+            <pre className="mt-2 overflow-x-auto rounded bg-sunken p-3 text-xs">
               {JSON.stringify(result.source, null, 2)}
             </pre>
           </details>
 
-          <p className="text-slate-500 text-xs">
+          <p className="text-ink-faint text-xs">
             ⚠ サイズだけで選ぶものではありません（劣化・透過・用途）。とくに僅差のときは。
           </p>
 
           <button
             type="button"
             onClick={onNext}
-            className="self-start rounded bg-slate-900 px-6 py-3 font-bold text-white hover:bg-slate-700"
+            className="self-start rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted"
           >
             {result.hasNext ? '次の問題へ' : '結果を見る'}
           </button>
@@ -540,7 +592,7 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
   const others = result.verification.filter((view) => view !== answered)
 
   return (
-    <section className="flex flex-col gap-2 rounded border border-slate-200 p-4">
+    <section className="flex flex-col gap-2 rounded border border-line p-4">
       <h3 className="font-bold text-sm">JPEG は「どこを」「どれだけ」壊したか</h3>
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -551,14 +603,14 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
             onClick={() => setMetric(option)}
             className={
               metric === option
-                ? 'rounded bg-slate-900 px-3 py-1 font-medium text-white'
-                : 'rounded border border-slate-300 px-3 py-1 text-slate-700'
+                ? 'rounded bg-ink px-3 py-1 font-medium text-ground'
+                : 'rounded border border-line-strong px-3 py-1 text-ink-muted'
             }
           >
             {option === 'de00' ? 'ΔE00（色の差）' : 'SSIM（構造の差）'}
           </button>
         ))}
-        <span className="text-slate-600 text-xs">
+        <span className="text-ink-muted text-xs">
           品質 {current.jpegQuality} / {current.chromaSubsampling}
           {current === answered ? '（回答した条件）' : ''}
         </span>
@@ -567,10 +619,10 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
       <img
         src={metric === 'de00' ? current.de00Url : current.ssimUrl}
         alt={`${metric === 'de00' ? 'ΔE00' : 'SSIM'} の劣化オーバーレイ`}
-        className="rounded border border-slate-200"
+        className="rounded border border-line"
       />
 
-      <p className="text-slate-600 text-xs">
+      <p className="text-ink-muted text-xs">
         {metric === 'de00' ? (
           <>
             <strong>ΔE00（CIEDE2000）</strong> — 色の差。輪郭の<strong>上</strong>に乗ります。
@@ -586,7 +638,7 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
       </p>
 
       {current.over2Pct !== null ? (
-        <p className="text-slate-700 text-sm">
+        <p className="text-ink-muted text-sm">
           この条件では <strong>{current.over2Pct.toFixed(1)}%</strong> の画素が ΔE00 &gt; 2
           （目で違いが分かる目安）を超えています。
         </p>
@@ -594,7 +646,7 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
 
       {others.length > 0 ? (
         <details className="text-sm">
-          <summary className="cursor-pointer text-slate-600">
+          <summary className="cursor-pointer text-ink-muted">
             他の条件の劣化を見る（{result.verification.length} 通り）
           </summary>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -607,8 +659,8 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
                   onClick={() => setShown(view)}
                   className={
                     isCurrent
-                      ? 'rounded bg-slate-900 px-2 py-1 font-mono text-white text-xs'
-                      : 'rounded border border-slate-300 px-2 py-1 font-mono text-slate-700 text-xs'
+                      ? 'rounded bg-ink px-2 py-1 font-mono text-ground text-xs'
+                      : 'rounded border border-line-strong px-2 py-1 font-mono text-ink-muted text-xs'
                   }
                 >
                   q{view.jpegQuality}/{view.chromaSubsampling}
@@ -636,14 +688,14 @@ function ProfileResultsTable({ results }: { results: readonly ProfileResult[] })
 
   return (
     <details className="text-sm">
-      <summary className="cursor-pointer text-slate-600">
+      <summary className="cursor-pointer text-ink-muted">
         他の条件ならどうなるか（{results.length} 通り
         {flipped.size > 0 ? ` — うち ${flipped.size} 通りで答えが変わる` : ''}）
       </summary>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full border-collapse text-xs">
           <thead>
-            <tr className="border-slate-300 border-b text-left">
+            <tr className="border-line-strong border-b text-left">
               <th className="py-1 pr-3 font-medium">条件</th>
               <th className="py-1 pr-3 font-medium text-right">PNG</th>
               <th className="py-1 pr-3 font-medium text-right">JPEG</th>
@@ -656,14 +708,14 @@ function ProfileResultsTable({ results }: { results: readonly ProfileResult[] })
                 key={row.profileId}
                 className={
                   row.isSelected
-                    ? 'border-slate-200 border-b bg-amber-50 font-medium'
-                    : 'border-slate-200 border-b'
+                    ? 'border-line border-b bg-sunken font-medium'
+                    : 'border-line border-b'
                 }
               >
                 <td className="py-1 pr-3 font-mono">
                   {row.profileId}
-                  {row.isStandard ? <span className="ml-1 text-slate-500">（標準）</span> : null}
-                  {row.isSelected ? <span className="ml-1 text-amber-700">← 今回</span> : null}
+                  {row.isStandard ? <span className="ml-1 text-ink-faint">（標準）</span> : null}
+                  {row.isSelected ? <span className="ml-1 text-accent">← 今回</span> : null}
                 </td>
                 <td className="py-1 pr-3 text-right tabular-nums">
                   {row.pngBytes.toLocaleString('ja-JP')}
@@ -671,7 +723,7 @@ function ProfileResultsTable({ results }: { results: readonly ProfileResult[] })
                 <td className="py-1 pr-3 text-right tabular-nums">
                   {row.jpegBytes.toLocaleString('ja-JP')}
                 </td>
-                <td className={flipped.has(row.profileId) ? 'py-1 text-red-700' : 'py-1'}>
+                <td className={flipped.has(row.profileId) ? 'py-1 text-wrong' : 'py-1'}>
                   {row.answer === 'png' ? 'PNG' : 'JPEG'}
                 </td>
               </tr>

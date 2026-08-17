@@ -24,7 +24,7 @@ export function AboutSection({
     <section id="about" className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-12 text-sm">
       <div className="flex flex-col gap-3">
         <h1 className="font-bold text-2xl">PNG / JPEG どっちが小さい？</h1>
-        <p className="text-slate-600">
+        <p className="text-ink-muted">
           表示された画像を、決まった条件で PNG と JPEG にエンコードしたとき、
           どちらの配布サイズが小さいかを当てる 2 択クイズです。
           <strong>実際にエンコードした結果</strong>を正解にしています（推定ではありません）。
@@ -33,7 +33,7 @@ export function AboutSection({
 
       <div className="flex flex-col gap-2">
         <h2 className="font-bold">いま適用している条件</h2>
-        <dl className="grid grid-cols-[5rem_1fr] gap-y-2 rounded border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700">
+        <dl className="grid grid-cols-[5rem_1fr] gap-y-2 rounded border border-line bg-sunken px-4 py-3 text-ink-muted">
           <dt className="font-medium">条件 ID</dt>
           <dd className="font-mono">{profileId ?? '（開始待ち）'}</dd>
           {profile ? (
@@ -59,30 +59,30 @@ export function AboutSection({
           <button
             type="button"
             onClick={onChangeProfile}
-            className="rounded border border-slate-300 px-4 py-2 font-medium hover:bg-slate-50"
+            className="rounded border border-line-strong px-4 py-2 font-medium hover:bg-sunken"
           >
             条件を変えて始め直す
           </button>
-          <a className="text-blue-700 underline" href="/conditions">
+          <a className="text-accent underline" href="/conditions">
             20 通りの条件と、標準条件の根拠
           </a>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 text-slate-600">
-        <h2 className="font-bold text-slate-900">正解の持ち方</h2>
+      <div className="flex flex-col gap-2 text-ink-muted">
+        <h2 className="font-bold text-ink">正解の持ち方</h2>
         <p>
           正解はサーバだけが持っています。回答するまで、正解も PNG / JPEG のバイト数も 画像の URL
           もブラウザには渡していません。回答すると
           <strong>両方の実物とバイト数、20 条件すべての結果</strong>
           を出すので、開発者ツールで転送サイズを自分で確かめられます。
         </p>
-        <p className="text-slate-500 text-xs">
+        <p className="text-ink-faint text-xs">
           ⚠ 実務では、サイズだけで形式を選ぶものではありません（劣化・透過・用途）。
         </p>
       </div>
 
-      <a className="text-blue-700 underline" href="/credits">
+      <a className="text-accent underline" href="/credits">
         素材のクレジット
       </a>
     </section>

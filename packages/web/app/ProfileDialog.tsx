@@ -67,7 +67,8 @@ export function ProfileDialog({
     <dialog
       ref={dialogRef}
       onClose={onClose}
-      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded border border-slate-200 p-0 backdrop:bg-black/50"
+      // ⚠ dialog の既定背景は `canvas`（＝白）。トークンを当てないとダークで白いまま浮く
+      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded border border-line bg-surface p-0 text-ink backdrop:bg-black/50"
     >
       <div className="flex flex-col gap-4 p-6">
         <div className="flex items-baseline justify-between">
@@ -75,14 +76,14 @@ export function ProfileDialog({
           <button
             type="button"
             onClick={() => dialogRef.current?.close()}
-            className="rounded border border-slate-300 px-2 py-1 text-sm"
+            className="rounded border border-line-strong px-2 py-1 text-sm"
             aria-label="閉じる"
           >
             ✕
           </button>
         </div>
 
-        <p className="text-slate-600 text-sm">
+        <p className="text-ink-muted text-sm">
           「どちらが小さいか」は<strong>条件次第で変わります</strong>。 20
           通りを事前に計算してあるので、選び直して確かめられます。
         </p>
@@ -96,7 +97,8 @@ export function ProfileDialog({
             value={selected}
             onChange={(event) => setSelected(event.target.value)}
             disabled={!profiles || playable.length === 0}
-            className="rounded border border-slate-300 px-3 py-2 font-mono text-sm"
+            // ⚠ select も UA 既定の面を持つ。option の描画は OS 依存なので色は当てない
+            className="rounded border border-line-strong bg-surface px-3 py-2 font-mono text-ink text-sm"
           >
             {playable.map((profile) => (
               <option key={profile.id} value={profile.id}>
@@ -108,13 +110,13 @@ export function ProfileDialog({
           </select>
 
           {current ? (
-            <p className="text-slate-600 text-xs">
+            <p className="text-ink-muted text-xs">
               {current.label} ／ 出題プール {current.poolSize} 問
             </p>
           ) : null}
 
           {shortPool ? (
-            <p className="text-amber-800 text-xs">
+            <p className="text-caution text-xs">
               ⚠ この条件の問題は {current?.poolSize} 問しかないため、
               <strong>練習モード（{current?.poolSize} 問）</strong>で始まります。 ランキング用の{' '}
               {STANDARD_30_QUESTION_COUNT} 問モードは、素材が増えたら選べるようになります。
@@ -122,21 +124,21 @@ export function ProfileDialog({
           ) : null}
 
           {profiles && playable.length < profiles.length ? (
-            <p className="text-slate-500 text-xs">
+            <p className="text-ink-faint text-xs">
               ⚠ {profiles.length - playable.length} 条件は、いまの問題プールでは答えが片方に
               寄りきっているため選べません（素材が増えると解放されます）。
             </p>
           ) : null}
         </div>
 
-        <p className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-slate-600 text-xs">
+        <p className="rounded border border-line bg-sunken px-4 py-3 text-ink-muted text-xs">
           少数派を当てるほど高得点です。偏った条件はハイリスク・ハイリターンで、
           <strong>期待値は 50:50 に近い条件が最大</strong>
           になります。条件が違っても同じランキングに載ります。
         </p>
 
         {/* 🔒 途中変更ではないことを明示する（prd/04 §2） */}
-        <p className="text-amber-800 text-xs">
+        <p className="text-caution text-xs">
           ⚠ 条件はセッション開始時に固定されます。ここで始め直すと
           <strong>いま遊んでいる回の得点と進行は破棄されます</strong>。
         </p>
@@ -146,19 +148,19 @@ export function ProfileDialog({
             type="button"
             disabled={playable.length === 0}
             onClick={() => onStart(selected)}
-            className="rounded bg-slate-900 px-6 py-3 font-bold text-white hover:bg-slate-700 disabled:opacity-50"
+            className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted disabled:opacity-50"
           >
             この条件で始め直す
           </button>
           <button
             type="button"
             onClick={() => dialogRef.current?.close()}
-            className="text-slate-600 text-sm underline"
+            className="text-ink-muted text-sm underline"
           >
             やめる
           </button>
         </div>
-        {error ? <p className="text-red-600 text-sm">{error}</p> : null}
+        {error ? <p className="text-wrong text-sm">{error}</p> : null}
       </div>
     </dialog>
   )
