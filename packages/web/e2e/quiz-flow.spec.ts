@@ -50,7 +50,11 @@ test('出題中にリロードすると同じ問題に戻る', async ({ page }) 
   })
   await expect(page).toHaveURL(/\?session=/)
 
-  const before = await page.getByText(/第 \d+ 問 \/ 全 \d+ 問/).innerText()
+  const counterBefore = await page.getByText(/第 \d+ 問 \/ 全 \d+ 問/).innerText()
+  // 問題の同一性は出題画像の src で見る（番号だけでは、別の問題を選び直す回帰に気づけない。
+  // OCL-A29FC312。src の比較なので画像の取得成功は要らない）
+  const srcBefore = await page.locator('img[alt="出題画像"]').getAttribute('src')
+  expect(srcBefore).toBeTruthy()
 
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('button', { name: 'PNG', exact: true })).toBeVisible({
@@ -58,6 +62,7 @@ test('出題中にリロードすると同じ問題に戻る', async ({ page }) 
   })
 
   // 未回答の問題は再出題される（quiz-service の「出題済みなら同じ問題を返す」）
-  const after = await page.getByText(/第 \d+ 問 \/ 全 \d+ 問/).innerText()
-  expect(after).toBe(before)
+  const counterAfter = await page.getByText(/第 \d+ 問 \/ 全 \d+ 問/).innerText()
+  expect(counterAfter).toBe(counterBefore)
+  expect(await page.locator('img[alt="出題画像"]').getAttribute('src')).toBe(srcBefore)
 })
