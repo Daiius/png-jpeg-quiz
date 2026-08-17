@@ -21,7 +21,7 @@ export default function ConditionsPage() {
     <main className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-12">
       <div className="flex flex-col gap-3">
         <h1 className="text-3xl font-bold">エンコード条件</h1>
-        <p className="text-slate-600">
+        <p className="text-ink-muted">
           「どちらが小さいか」は<strong>エンコードのオプション次第で変わります</strong>。
           そこでこのサイトは条件を隠さず、20 通りを事前に計算して選べるようにしています。
         </p>
@@ -30,7 +30,7 @@ export default function ConditionsPage() {
       <section className="flex flex-col gap-3">
         <h2 className="text-xl font-bold">標準条件（ランキングの基準）</h2>
         <p className="font-mono text-sm">{STANDARD_PROFILE_ID}</p>
-        <dl className="grid grid-cols-[8rem_1fr] gap-y-2 rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+        <dl className="grid grid-cols-[8rem_1fr] gap-y-2 rounded border border-line bg-sunken px-4 py-3 text-sm">
           <dt className="font-medium">前処理</dt>
           <dd>
             sRGB へ変換 / ICC 除去 / 8bit・ch / メタデータ全除去 / 透過は背景色に合成してから除去 /
@@ -49,7 +49,7 @@ export default function ConditionsPage() {
           <dt className="font-medium">比較</dt>
           <dd>ファイルのバイト数。転送時圧縮（gzip / br）は考慮しません</dd>
         </dl>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           この条件を標準にしたのは、<strong>PNG・JPEG の両方を最高品質側に振った条件</strong>
           だからです。PNG は可逆なので常に画質最高で、oxipng はサイズだけを詰めます。 JPEG
           も品質・サブサンプリングを最高側にすると、
@@ -59,13 +59,13 @@ export default function ConditionsPage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-xl font-bold">選べる 20 条件</h2>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           JPEG 品質 5 段階 × クロマサブサンプリング 2 種 × PNG 最適化の有無。
         </p>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="border-slate-300 border-b text-left">
+              <tr className="border-line-strong border-b text-left">
                 <th className="py-2 pr-4 font-medium">ID</th>
                 <th className="py-2 pr-4 font-medium">JPEG 品質</th>
                 <th className="py-2 pr-4 font-medium">サブサンプリング</th>
@@ -74,11 +74,11 @@ export default function ConditionsPage() {
             </thead>
             <tbody>
               {ENCODE_PROFILES.map((profile) => (
-                <tr key={profile.id} className="border-slate-200 border-b">
+                <tr key={profile.id} className="border-line border-b">
                   <td className="py-2 pr-4 font-mono">
                     {profile.id}
                     {profile.isStandard ? (
-                      <span className="ml-2 rounded bg-slate-900 px-2 py-0.5 text-white text-xs">
+                      <span className="ml-2 rounded bg-ink px-2 py-0.5 text-ground text-xs">
                         標準
                       </span>
                     ) : null}
@@ -95,14 +95,14 @@ export default function ConditionsPage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-xl font-bold">この割り切りについて</h2>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           出題は<strong>サイズだけ</strong>を問います。劣化の許容度・透過の要否・用途は問いません。
           現場の判断はサイズだけでは決まりません——
           <strong>僅差なら、サイズ以外の理由で選ぶべき</strong>です。これは意図的な割り切りです。
         </p>
       </section>
 
-      <a className="text-blue-700 underline" href="/">
+      <a className="text-accent underline" href="/">
         最初に戻る
       </a>
     </main>

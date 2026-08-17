@@ -30,7 +30,7 @@ export default async function CreditsPage() {
     <main className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-12">
       <div className="flex flex-col gap-3">
         <h1 className="font-bold text-3xl">クレジット</h1>
-        <p className="text-slate-600">
+        <p className="text-ink-muted">
           出題に使っている画像 {total} 点の由来です。
           <strong>どの画像がどれかは示していません。</strong>
         </p>
@@ -44,7 +44,7 @@ export default async function CreditsPage() {
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="border-slate-300 border-b text-left">
+              <tr className="border-line-strong border-b text-left">
                 <th className="py-2 pr-4 font-medium">由来</th>
                 <th className="py-2 pr-4 font-medium">ライセンス</th>
                 <th className="py-2 pr-4 font-medium">点数</th>
@@ -52,16 +52,16 @@ export default async function CreditsPage() {
             </thead>
             <tbody>
               {groups.map((group) => (
-                <tr key={`${group.site} ${group.license}`} className="border-slate-100 border-b">
+                <tr key={`${group.site} ${group.license}`} className="border-line border-b">
                   <td className="py-2 pr-4">
                     {group.site}
                     {group.isAiGenerated === true ? (
-                      <span className="ml-2 rounded bg-slate-100 px-2 py-0.5 text-slate-700 text-xs">
+                      <span className="ml-2 rounded bg-sunken px-2 py-0.5 text-ink-muted text-xs">
                         AI 生成
                       </span>
                     ) : null}
                     {group.isAiGenerated === null ? (
-                      <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-amber-900 text-xs">
+                      <span className="ml-2 rounded border border-caution/40 bg-sunken px-2 py-0.5 text-caution text-xs">
                         AI 生成の別が未宣言
                       </span>
                     ) : null}
@@ -69,7 +69,7 @@ export default async function CreditsPage() {
                   <td className="py-2 pr-4">
                     {group.licenseUrl ? (
                       <a
-                        className="text-blue-700 underline"
+                        className="text-accent underline"
                         href={group.licenseUrl}
                         rel="noreferrer"
                         target="_blank"
@@ -87,14 +87,14 @@ export default async function CreditsPage() {
           </table>
         </div>
         {/* ⚠ ライセンス本文へのリンクは原本を指さないので T7 の経路にならない */}
-        <p className="text-slate-500 text-xs">
+        <p className="text-ink-faint text-xs">
           ライセンス名のリンクはライセンス条文へのものです。原本のページへは意図的にリンクしていません。
         </p>
       </section>
 
       <section className="flex flex-col gap-3">
         <h2 className="font-bold text-xl">AI 生成について</h2>
-        <p className="text-slate-600 text-sm">
+        <p className="text-ink-muted text-sm">
           {groups
             .filter((group) => group.isAiGenerated === true)
             .flatMap((group) => group.authors)
@@ -107,20 +107,20 @@ export default async function CreditsPage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="font-bold text-xl">なぜ画像ごとの帰属を載せていないのか</h2>
-        <p className="text-slate-600 text-sm">
+        <p className="text-ink-muted text-sm">
           帰属表示には<strong>原本へ到達できること</strong>が含まれます。
           作者名と出典リンクが一覧に並んでいると、出題中の画像とリンク先の原本を突き合わせて、
           <strong>回答前にその画像の素性を知れてしまいます。</strong>
           素性（AI 生成か、図版か）は答えの向きを強く示すため、それはクイズとして成立しません。
         </p>
-        <p className="text-slate-600 text-sm">
+        <p className="text-ink-muted text-sm">
           そこでこのサイトは、<strong>帰属義務のある素材（CC BY / CC BY-SA）を出題に使わず</strong>
           、ここでは由来を集合としてのみ開示しています。 個別の出典・作者・ライセンス・改変内容は、
           <strong>回答した直後の画面でその画像について表示します。</strong>
         </p>
       </section>
 
-      <a className="text-blue-700 text-sm underline" href="/">
+      <a className="text-accent text-sm underline" href="/">
         トップへ戻る
       </a>
     </main>
@@ -137,11 +137,11 @@ export default async function CreditsPage() {
 function UndeclaredWarning({ groups }: { groups: readonly CreditGroup[] }) {
   const count = groups.reduce((sum, group) => sum + group.count, 0)
   return (
-    <section className="rounded border border-amber-300 bg-amber-50 p-4 text-sm">
-      <p className="font-bold text-amber-900">
+    <section className="rounded border border-caution/50 bg-sunken p-4 text-sm">
+      <p className="font-bold text-caution">
         ⚠ AI 生成の別が未宣言の素材が {count} 点あります（このままでは公開できません）
       </p>
-      <p className="mt-2 text-amber-900">
+      <p className="mt-2 text-caution">
         <code>pnpm quiz:build</code> を全素材に流して、<code>meta.json</code>{' '}
         の宣言を取り込んでください。
       </p>
@@ -156,18 +156,18 @@ function UndeclaredWarning({ groups }: { groups: readonly CreditGroup[] }) {
  */
 function AttributionWarning({ groups }: { groups: readonly CreditGroup[] }) {
   return (
-    <section className="rounded border border-red-300 bg-red-50 p-4 text-sm">
-      <p className="font-bold text-red-800">
+    <section className="rounded border border-wrong/50 bg-sunken p-4 text-sm">
+      <p className="font-bold text-wrong">
         ⚠ 帰属義務のある素材が出題プールに残っています（このままでは公開できません）
       </p>
-      <ul className="mt-2 list-disc pl-5 text-red-900">
+      <ul className="mt-2 list-disc pl-5 text-wrong">
         {groups.map((group) => (
           <li key={`${group.site} ${group.license}`}>
             {group.site} / {group.license} — {group.count} 点
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-red-900">
+      <p className="mt-2 text-wrong">
         prd/05 §1.4 の決定により、CC BY / CC BY-SA の素材は公開プールに置けません。 該当の問題を{' '}
         <code>retired</code> にしてください。
       </p>

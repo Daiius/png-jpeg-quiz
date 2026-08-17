@@ -1,1 +1,81 @@
 @import "tailwindcss";
+
+/*
+ * 画面の色は 🔒 ここだけで決める。TSX に生の色（slate-600 など）を書かない。
+ *
+ * 値はゲームの成立条件から決まっている。好みで動かす前に理由を読むこと。
+ *
+ * 1. 🔒 UI は画像の見えに干渉しない（prd/01 §7）。
+ *    彩度のある面を画像の隣に置くと同時対比で画素の色が変わって見える。
+ *    無彩色はアクセント（深い青緑）と同じ方向へごくわずかに傾けてあるだけ。
+ * 2. 🔒 素材はどんな色でも来る。状態を色だけで表さない（記号・文字と併用する）。
+ *    --color-wrong は純赤を外してある。赤ベタの素材と同じ画面に出るため。
+ * 3. 🔒 --color-png / --color-jpeg は回答後だけ。出題中に形式へ色を割り当てない
+ *    （2 択の重みに差が出る。prd/04 §3.5）。
+ */
+@theme {
+  /* 無彩色。役割で呼ぶ。階調の番号では呼ばない */
+  --color-ground: #f5f7f7;
+  --color-surface: #ffffff;
+  --color-sunken: #edf0f0;
+  --color-line: #d6dbdb;
+  --color-line-strong: #b3bbbb;
+  --color-ink-faint: #6e7676;
+  --color-ink-muted: #545c5c;
+  --color-ink: #141a1a;
+
+  /* リンク・強調。画像の隣に出るので彩度は落としてある */
+  --color-accent: #0f5257;
+
+  /* 🔒 形式の識別。回答後だけ。常に「PNG」「JPEG」の文字を併記する */
+  --color-png: #1f5fa8;
+  --color-jpeg: #a85a18;
+
+  /* 🔒 色だけに意味を持たせない。記号（○ / ✗ / ⚠）と併用する */
+  --color-correct: #1b6e4b;
+  --color-wrong: #a8324a;
+  --color-caution: #8a6a16;
+
+  /*
+   * 拡大ダイアログ（暗室）。🔒 ライト/ダークのどちらでも暗いまま。
+   * 画素を観察するための面なので、明るい地に置くと目が順応せず細部が見えない。
+   * テーマに追従させないことが目的なので、下の @media では上書きしない。
+   */
+  --color-darkroom: #0d1111;
+  --color-darkroom-ink: #eef2f1;
+  --color-darkroom-line: #39423f;
+}
+
+/*
+ * ダークは OS 追従のみ（トグルは持たない）。
+ * 🔑 画像を観察するアプリなので、暗い地のほうが素材は正しく見える。
+ * ⚠ 反転ではなく組み直し。--color-png などは明度を上げないと暗地で沈む。
+ */
+@layer base {
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-ground: #121616;
+      --color-surface: #1a1f1f;
+      --color-sunken: #0c0f0f;
+      --color-line: #2e3636;
+      --color-line-strong: #4a5453;
+      --color-ink-faint: #7b8584;
+      --color-ink-muted: #a6b0af;
+      --color-ink: #e9eeed;
+
+      --color-accent: #6fbfc2;
+
+      --color-png: #6fa8e8;
+      --color-jpeg: #e0a05c;
+
+      --color-correct: #5fc297;
+      --color-wrong: #e8859c;
+      --color-caution: #c9a84a;
+    }
+  }
+
+  /* 数字は答えそのもの（バイト数・比・SSIM）。桁を揃える */
+  :where(table, dl, code, pre) {
+    font-variant-numeric: tabular-nums;
+  }
+}
