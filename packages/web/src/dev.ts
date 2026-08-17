@@ -12,7 +12,10 @@ export function devQuestionCount(questionCount: number): number {
   if (process.env['NODE_ENV'] === 'production') return questionCount
   const raw = process.env['DEV_QUESTION_COUNT']
   if (!raw) return questionCount
-  const parsed = Number.parseInt(raw, 10)
-  if (!Number.isInteger(parsed) || parsed < 1) return questionCount
+  // ⚠ parseInt は文字列全体を検証しない（'3abc' → 3、'1.5' → 1）。設定ミスは黙って
+  // 受理せず無視する（OCL-9D0D4E59）。文字列全体が正の十進整数のときだけ効かせる
+  if (!/^[1-9]\d*$/.test(raw)) return questionCount
+  const parsed = Number(raw)
+  if (!Number.isSafeInteger(parsed)) return questionCount
   return Math.min(questionCount, parsed)
 }
