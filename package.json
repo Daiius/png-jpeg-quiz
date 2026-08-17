@@ -19,6 +19,7 @@
     "format": "biome check --write .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "pnpm --filter @png-jpeg-quiz/web test:e2e",
     "db:generate": "pnpm --filter @png-jpeg-quiz/database generate",
     "db:migrate": "pnpm --filter @png-jpeg-quiz/database migrate",
     "db:seed": "pnpm --filter @png-jpeg-quiz/database seed",

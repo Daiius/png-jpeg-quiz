@@ -11,6 +11,9 @@ next-env.d.ts
 
 # test / coverage
 coverage/
+# Playwright（E2E）の実行生成物
+test-results/
+playwright-report/
 
 # logs
 *.log

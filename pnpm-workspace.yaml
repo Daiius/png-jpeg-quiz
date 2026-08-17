@@ -32,8 +32,14 @@ catalog:
   # 可逆パレット化を担う。sharp の palette:true は非可逆なので使わない（prd/01 §3.3）
   '@jsquash/oxipng': 2.3.0
 
+  # --- E2E（dev スタックに対して実行する。prd/02 §2）---
+  '@playwright/test': 1.62.1
+
 # インストール時のスクリプト実行は既定で全部止まる。許すものだけをここに書く
 # （pnpm が新しい候補を見つけたら、値を空にした行を自動で足してくる）
 allowBuilds:
   # vitest / drizzle-kit が使う。バイナリの配置に postinstall が要る
   esbuild: true
+  # ブラウザは postinstall で落とさない（イメージが肥大する）。
+  # ホストで `pnpm --filter @png-jpeg-quiz/web exec playwright install chromium` を明示実行する
+  playwright: false
