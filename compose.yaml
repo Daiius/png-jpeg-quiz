@@ -49,6 +49,8 @@ services:
       DATABASE_URL: mysql://${MYSQL_USER:-quiz}:${MYSQL_PASSWORD:?set it in .env}@db:3306/${MYSQL_DATABASE:-png_jpeg_quiz}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
       ASSET_BASE_URL: ${ASSET_BASE_URL:-http://localhost:3000/assets}
+      # dev / E2E 専用: セッションの問題数を上から抑える（web/src/dev.ts。本番では無効）
+      DEV_QUESTION_COUNT: ${DEV_QUESTION_COUNT:-}
     ports:
       # ホストに出すのは web だけ（db は compose 網内のみ）。
       # WEB_BIND でバインドアドレスを絞れる。remote 公開時は 127.0.0.1 にして、

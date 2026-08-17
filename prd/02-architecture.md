@@ -135,6 +135,7 @@ interface EncodedLocator { urlFor(assetId: string): string }
 | `pnpm dev` | docker compose watch |
 | `pnpm dev:remote` | 同上 ＋ `.env.remote`（リモート dev 公開。→ §6.2。`:logs` / `:down` あり） |
 | `pnpm typecheck` / `lint` / `format` / `test` | tsc / Biome / Vitest |
+| `pnpm test:e2e` | Playwright E2E。**稼働中の dev スタックに対して**実行する（→ §6.3） |
 | `pnpm db:migrate` / `db:seed` | Drizzle マイグレーション / seed。⚠ **コンテナ内で実行する**（下記） |
 | `pnpm quiz:build` | 素材 → 問題データ + アセット生成（[05](./05-content-pipeline.md)） |
 | `pnpm quiz:upload` | 生成アセットを R2 へ同期 |
@@ -181,6 +182,22 @@ docker compose exec web pnpm db:seed      # シード投入（冪等）
   `allowedDevOrigins` に入れて回避している。
 - 公開先は**必ず前段の認証で保護する**。dev スタックは検証ビュー等の内部情報をそのまま見せる。
 - 前段プロキシは compose の外で常駐させる。**公開ホスト名・ポート・その具体設定は公開リポに書かない**（§7）。
+
+### 6.3 E2E（Playwright）
+
+`pnpm test:e2e` は**稼働中の dev スタック**（§6）に対して実行する。サーバの起動は行わない
+（CI への組み込みは M4）。接続先は `E2E_BASE_URL` で上書きできる
+（既定は `http://localhost:${WEB_PORT:-3000}`）。
+
+- **通しの完走テスト**: 開いた瞬間の出題 → 回答 → 正解画面 → 次問 → 完走。
+  ⚠ 画像の読み込みには依存しない（dev:remote では `ASSET_BASE_URL` が認証付きの公開ホストを
+  指すため。§6.2）。
+- **出題レスポンスの契約テスト**: 回答前のレスポンスの**生 JSON** のキー集合が許可リストと
+  **完全一致**すること（[04](./04-session-and-integrity.md) §3.5 / T7 の回帰防止）。
+  ⚠ Zod の parse 後を見ても余計なキーの混入は見えない（スキーマが strip するため）。
+- **`DEV_QUESTION_COUNT`**（dev / E2E 専用の環境変数）: セッションの問題数を上から抑え、
+  完走を短時間で再現する。🔒 **本番ビルドでは無効**。`quiz-core` のモード定義には持ち込まず、
+  web 側で丸める（30 問固定の意味論を汚さない）。
 
 ## 7. デプロイ姿勢
 
