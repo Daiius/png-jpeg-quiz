@@ -15,8 +15,12 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const row = await authenticateSession(id)
   if (!row) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
-  const view = await serveNextQuestion(row)
-  if (!view) return NextResponse.json({ status: 'finished' })
+  // 「いまどの条件で遊んでいるか」を画面に出すために返す（prd/06 §2.1）。
+  // 🔒 プレイヤー自身が選んだ公開情報で、個別問題については何も語らない（prd/04 §3.5）
+  const sessionContext = { mode: row.mode, profileId: row.profileId }
 
-  return NextResponse.json({ status: 'question', question: view })
+  const view = await serveNextQuestion(row)
+  if (!view) return NextResponse.json({ status: 'finished', ...sessionContext })
+
+  return NextResponse.json({ status: 'question', question: view, ...sessionContext })
 }

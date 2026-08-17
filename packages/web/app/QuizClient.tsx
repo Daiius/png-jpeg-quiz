@@ -210,12 +210,34 @@ function ZoomableImage({
   )
 }
 
-export function QuizClient({ sessionId }: { sessionId: string }) {
+/** そのセッションが何で遊んでいるか（prd/06 §2.1）。画面に条件を出すために親へ渡す */
+export interface SessionContext {
+  mode: string
+  profileId: string
+}
+
+export function QuizClient({
+  sessionId,
+  header,
+  onSessionContext,
+}: {
+  sessionId: string
+  /** 問題番号・得点の下に差し込む行（条件の表示と変更導線）。出題中も回答後も出る */
+  header?: ReactNode
+  onSessionContext?: (context: SessionContext) => void
+}) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' })
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
   const [score, setScore] = useState(0)
   const [zoom, setZoom] = useState<ZoomRequest | null>(null)
+
+  // ⚠ コールバックを effect / useCallback の依存に入れない。親が毎レンダリングで
+  // 新しい関数を渡すと出題の取得が繰り返される（M2 で踏んだ二重送信と同じ形）
+  const contextRef = useRef(onSessionContext)
+  useEffect(() => {
+    contextRef.current = onSessionContext
+  })
 
   const loadQuestion = useCallback(async () => {
     setPhase({ kind: 'loading' })
@@ -225,6 +247,7 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
       return
     }
     const body = await response.json()
+    contextRef.current?.({ mode: body.mode as string, profileId: body.profileId as string })
     if (body.status === 'finished') {
       setPhase({ kind: 'finished' })
       return
@@ -267,22 +290,46 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
   }
 
   if (phase.kind === 'loading') {
-    return <p className="text-slate-500">読み込み中…</p>
+    return (
+      <Narrow>
+        <p className="text-slate-500">読み込み中…</p>
+      </Narrow>
+    )
   }
 
   if (phase.kind === 'error') {
-    return <p className="text-red-600">{phase.message}</p>
+    return (
+      <Narrow>
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-red-600">{phase.message}</p>
+          {/* 期限切れ・別ブラウザの URL を開いた場合はここに来る。新しい回を始められるようにする */}
+          <a
+            className="rounded bg-slate-900 px-6 py-3 font-bold text-white hover:bg-slate-700"
+            href="/"
+          >
+            新しく始める
+          </a>
+        </div>
+      </Narrow>
+    )
   }
 
   if (phase.kind === 'finished') {
     return (
-      <div className="flex flex-col gap-4">
-        <h2 className="text-2xl font-bold">おしまい</h2>
-        <p className="text-slate-600">全問終わりました。得点とランキングは M2 以降で実装します。</p>
-        <a className="text-blue-700 underline" href="/">
-          最初に戻る
-        </a>
-      </div>
+      <Narrow>
+        <div className="flex flex-col items-start gap-4">
+          <h2 className="font-bold text-2xl">おしまい</h2>
+          <p className="text-slate-600">
+            全問終わりました（{score.toFixed(2)} 点）。ランキングへの登録は M3 で実装します。
+          </p>
+          <a
+            className="rounded bg-slate-900 px-6 py-3 font-bold text-white hover:bg-slate-700"
+            href="/"
+          >
+            もう一度遊ぶ
+          </a>
+        </div>
+      </Narrow>
     )
   }
 
@@ -299,6 +346,7 @@ export function QuizClient({ sessionId }: { sessionId: string }) {
           </p>
           <p className="tabular-nums">{score.toFixed(2)} 点</p>
         </div>
+        {header}
         {phase.kind === 'question' ? (
           // 問いは画像より先に読ませる。ボタンは sticky で下に常駐する
           <p className="mt-2 font-medium">

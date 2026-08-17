@@ -1,5 +1,5 @@
 import { encodeProfile, getDatabase, question, questionEncoding } from '@png-jpeg-quiz/database'
-import { ENCODE_PROFILES } from '@png-jpeg-quiz/quiz-core'
+import { ENCODE_PROFILES, STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
 import { eq } from 'drizzle-orm'
 
 /**
@@ -68,7 +68,19 @@ export async function listProfileChoices(): Promise<ProfileChoice[]> {
   })
 }
 
-export async function findPlayableProfile(profileId: string): Promise<ProfileChoice | undefined> {
+/**
+ * 開始する条件を決める（prd/06 §2.1）。
+ *
+ * - **指定あり**: その条件が遊べるときだけ返す（遊べなければ `undefined`）。
+ * - **省略（おまかせ開始）**: 標準条件。それが遊べないときは遊べるものの先頭。
+ *   ⚠ ここで `undefined` が返るのは**プール全体が空**か、全条件で答えが片方に寄りきっている場合。
+ */
+export async function resolveStartProfile(profileId?: string): Promise<ProfileChoice | undefined> {
   const choices = await listProfileChoices()
-  return choices.find((choice) => choice.id === profileId && choice.playable)
+  if (profileId !== undefined) {
+    return choices.find((choice) => choice.id === profileId && choice.playable)
+  }
+  const standard = choices.find((choice) => choice.id === STANDARD_PROFILE_ID)
+  if (standard?.playable) return standard
+  return choices.find((choice) => choice.playable)
 }

@@ -144,6 +144,16 @@ export const practice: QuizMode = {
   },
 }
 
+/**
+ * 「おまかせ開始」で使うモード（prd/06 §2.1）。`/` を開いた瞬間の出題はここで決まる。
+ *
+ * 🔒 **`standard-30` を短くしない。** プールが 30 問に満たなければ `practice` を選ぶ。
+ * ランキングは 30 問という前提に乗っているため、短い `standard-30` を作ってはいけない。
+ */
+export function defaultModeForPool(poolSize: number): QuizMode {
+  return poolSize >= STANDARD_30_QUESTION_COUNT ? standard30 : practice
+}
+
 export const MODES: Readonly<Record<string, QuizMode>> = {
   [standard30.id]: standard30,
   [practice.id]: practice,

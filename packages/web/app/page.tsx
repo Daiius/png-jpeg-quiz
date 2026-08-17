@@ -1,43 +1,24 @@
-import { findProfile, STANDARD_PROFILE_ID } from '@png-jpeg-quiz/quiz-core'
-import { StartPanel } from './StartPanel.tsx'
+import { QuizRoot } from './QuizRoot.tsx'
 
-export default function HomePage() {
-  // ⚠ 標準条件の中身を**書き写さない**。プロファイル定義から引く。
-  // 旧標準（q80-420）の説明文が再校正後も残っていて、ID と食い違っていた
-  const standard = findProfile(STANDARD_PROFILE_ID)
+export const dynamic = 'force-dynamic'
 
-  return (
-    <main className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-16">
-      <h1 className="text-3xl font-bold">PNG / JPEG どっちが小さい？</h1>
-      <p className="text-slate-600">
-        表示された画像を、決まった条件で PNG と JPEG にエンコードしたとき、
-        どちらの配布サイズが小さいかを当てる 2 択クイズです。
-      </p>
+/**
+ * トップページ ＝ 出題画面（prd/06 §2.1）。
+ *
+ * 🔑 **開いた時点で 1 問目が出ている。** 開始ボタンも条件選択も挟まない
+ * ——何をするサイトかは、説明文ではなく問題そのもので伝える。
+ * 条件の選択はダイアログ、サイトの説明は画面下部に置く。
+ *
+ * `?session=` があれば継続。無ければ `QuizRoot` が「おまかせ開始」でセッションを作る。
+ */
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ session?: string }>
+}) {
+  const { session } = await searchParams
 
-      <dl className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-        <dt className="font-medium">標準条件</dt>
-        <dd className="font-mono">{STANDARD_PROFILE_ID}</dd>
-        <dd className="mt-1 text-slate-600">
-          PNG: sharp（compressionLevel 9 / effort 10）→ oxipng -o4 ／ JPEG: 品質
-          {standard?.jpegQuality}・{standard?.chromaSubsampling}・progressive・mozjpeg ／
-          リサイズなし
-        </dd>
-      </dl>
-
-      <StartPanel />
-
-      <p className="text-slate-500 text-xs">
-        正解はサーバだけが持っています。回答すると PNG / JPEG 両方の実物とバイト数、 そして 20
-        条件すべての結果を表示します。
-      </p>
-
-      <a className="text-blue-700 text-sm underline" href="/credits">
-        素材のクレジット
-      </a>
-
-      <a className="text-blue-700 text-sm underline" href="/conditions">
-        エンコード条件の詳細を見る
-      </a>
-    </main>
-  )
+  // ⚠ ここで幅を絞らない。画像はビューポート幅いっぱいに出し、読み物だけ 720px に収める
+  // （prd/01 §7.1）。絞る役目は QuizClient 内の <Narrow> が持つ。
+  return <QuizRoot initialSessionId={session ?? null} />
 }
