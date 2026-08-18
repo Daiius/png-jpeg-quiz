@@ -715,6 +715,11 @@ function ResultPanel({
         </figure>
       ))}
 
+      {/* 2 枚は同じ寸法なので、縮小率の注記は 1 回だけ（prd/01 §7.1。OCL-2A3C0A96） */}
+      <ImageColumn>
+        <ScaleNote naturalWidth={width} />
+      </ImageColumn>
+
       {/* 🔑 2 枚の比較はレイアウトではなくダイアログが担う（prd/01 §7.3）。
           横並びにするより、**同じ位置で切り替える**ほうが人間の目には差が見える */}
       <Narrow>
