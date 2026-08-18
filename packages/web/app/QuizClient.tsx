@@ -278,6 +278,15 @@ export function QuizClient({
    * （OCL-C3CDAECF）。回復するまで同じ選択肢だけを再送可能にする。
    */
   const [pendingAnswer, setPendingAnswer] = useState<Answer | null>(null)
+  /**
+   * 直前に回答した問題とその結果。完走画面から**最後の問題の開示に戻る**ために持つ
+   * （最終問題はセッションが finished になるため、リロードすると正解画面を経由できない。
+   * OCL-47168032）。回答成功時と bootstrap の両方で入るので、リロード後も残る。
+   */
+  const [lastOutcome, setLastOutcome] = useState<{
+    question: QuestionView
+    result: AnswerResult
+  } | null>(null)
 
   // ⚠ コールバックを effect / useCallback の依存に入れない。親が毎レンダリングで
   // 新しい関数を渡すと出題の取得が繰り返される（M2 で踏んだ二重送信と同じ形）
@@ -350,6 +359,9 @@ export function QuizClient({
       const state = (await response.json()) as SessionStateResponse
       contextRef.current?.({ mode: state.mode, profileId: state.profileId })
       setScore(state.score)
+      if (state.lastQuestion && state.lastResult) {
+        setLastOutcome({ question: state.lastQuestion, result: state.lastResult })
+      }
       if (state.status === 'finished') {
         setPhase({ kind: 'finished' })
         return
@@ -414,6 +426,7 @@ export function QuizClient({
       const result: AnswerResult = await response.json()
       setPendingAnswer(null)
       setScore((current) => current + result.awardedPoints)
+      setLastOutcome({ question, result })
       setPhase({ kind: 'result', question, result })
     } catch {
       // 送信か応答のどちらかが落ちた。サーバ側は受理済みかもしれないが、
@@ -473,6 +486,23 @@ export function QuizClient({
                 <p className="text-ink-muted">
                   全問終わりました（{score.toFixed(2)} 点）。ランキングへの登録は M3 で実装します。
                 </p>
+                {/* 最終問題は回答と同時に finished になるため、開示へ戻る導線をここに残す
+                    （リロードしても bootstrap が lastOutcome を復元する。prd/04 §4） */}
+                {lastOutcome ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPhase({
+                        kind: 'result',
+                        question: lastOutcome.question,
+                        result: lastOutcome.result,
+                      })
+                    }
+                    className="text-ink-muted text-sm underline"
+                  >
+                    最後の問題の結果を見直す
+                  </button>
+                ) : null}
                 <a
                   className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted"
                   href="/"
