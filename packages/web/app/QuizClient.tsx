@@ -34,8 +34,8 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * 読み物（説明文・ボタン）を 720px に収める（prd/01 §7.1）。
- * ⚠ 画像はこれで包まない。画像だけがビューポート幅いっぱいに出るのが今の設計。
+ * 読み物（説明文・ボタン）を内寸 720px に収める（prd/01 §7.1）。
+ * ⚠ 画像はこれで包まない。画像は `ImageColumn`（パディング無しの同じ列）に入れる。
  *
  * `wide` は**データの面**（検証ビュー・20 条件の表）だけに使う。読み物は 720px のまま。
  * 🔒 ブレークポイントは `lg`（1024px）1 本。`md`（768px）は `max-w-3xl` と同値で境界にならない。
@@ -48,29 +48,60 @@ function Narrow({ children, wide = false }: { children: ReactNode; wide?: boolea
   )
 }
 
+/** Tailwind `max-w-3xl`（48rem）。画像の列の上限幅。`ScaleNote` の分母をこれに揃える */
+const IMAGE_COLUMN_MAX_WIDTH = 768
+
+/**
+ * 画像の列（prd/01 §7.1 / prd/08 §4）。読み物と同じ `max-w-3xl` だが**パディングを付けない**
+ * ——768px 未満のビューポートでは従来どおり端まで出す（モバイルの見え方は変えない）。
+ */
+function ImageColumn({ children }: { children: ReactNode }) {
+  return <div className="mx-auto w-full max-w-3xl">{children}</div>
+}
+
+/**
+ * 縮小率の注記（prd/01 §7.1）。0.95x を切ったときだけ出す。
+ * 🔒 倍率は出題レスポンス既出の `width` からの導出値なので、新しい漏洩はない（prd/04 §3.5）。
+ */
+function ScaleNote({ naturalWidth }: { naturalWidth: number }) {
+  const [viewport, setViewport] = useState(() =>
+    typeof window === 'undefined' ? IMAGE_COLUMN_MAX_WIDTH : window.innerWidth,
+  )
+  useEffect(() => {
+    const onResize = () => setViewport(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const scale = Math.min(viewport, IMAGE_COLUMN_MAX_WIDTH, naturalWidth) / naturalWidth
+  if (scale >= 0.95) return null
+  return (
+    <p className="mx-4 mt-2 rounded border border-line bg-sunken px-3 py-2 text-ink-muted text-xs">
+      表示は約 {scale.toFixed(2)}x に縮小されています。細部（ノイズ・輪郭）は拡大で確認できます。
+    </p>
+  )
+}
+
 /**
  * 拡大ダイアログへの導線（prd/01 §7.4）。
  *
- * 🔑 **モバイルでは幅いっぱいでも 0.30x にしかならず、ダイアログは必須であって装飾ではない。**
- * にもかかわらず画像には「押せる」手がかりが無かった。幅 390px では画像の下に約 300px が
- * 余るので、そこがこの導線の置き場になる（余白と導線不足が同時に解ける）。
+ * 🔑 **インラインだけでは細部が見えないので、ダイアログは全環境で必須**であって装飾ではない
+ * （2c でデスクトップも「全体はインライン・細部はダイアログ」に統一した）。
+ * だから画像の直後に「押せる」手がかりを常設する。配置は呼び出し側が決める。
  *
  * ⚠ 画像の上に重ねない。🔒 UI は画像の見えに干渉しない（同時対比で画素の色が変わる）。
  */
 function ZoomHint({ label, onOpen }: { label: string; onOpen: () => void }) {
   return (
-    <Narrow>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="flex items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm hover:bg-sunken"
-      >
-        <span aria-hidden="true" className="text-ink-muted">
-          ⤢
-        </span>
-        {label}
-      </button>
-    </Narrow>
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex items-center gap-2 rounded border border-line-strong px-4 py-2 text-sm hover:bg-sunken"
+    >
+      <span aria-hidden="true" className="text-ink-muted">
+        ⤢
+      </span>
+      {label}
+    </button>
   )
 }
 
@@ -220,8 +251,9 @@ function ZoomDialog({
 }
 
 /**
- * インラインの画像（prd/01 §7.1）。**ビューポート幅いっぱい**に出し、タップで拡大ダイアログを開く。
- * `button` で包むのはキーボードからも開けるようにするため。
+ * インラインの画像（prd/01 §7.1）。`ImageColumn` の中で「全体を見る」役を担い、
+ * タップで拡大ダイアログを開く。`button` で包むのはキーボードからも開けるようにするため。
+ * ⚠ **原寸より大きくは表示しない**（原寸未満の素材を引き伸ばさない）。
  */
 function ZoomableImage({
   url,
@@ -243,7 +275,8 @@ function ZoomableImage({
         width={width}
         height={height}
         alt={alt}
-        className="block h-auto w-full [image-rendering:pixelated]"
+        style={{ maxWidth: width }}
+        className="mx-auto block h-auto w-full [image-rendering:pixelated]"
       />
     </button>
   )
@@ -539,12 +572,12 @@ export function QuizClient({
         ) : null}
       </Narrow>
 
-      {/* 🔒 幅いっぱいに出す（prd/01 §7.1）。display は R2 由来の外部 URL になる（M4）ので
+      {/* 2c: 画像も読み物幅の列に収める（prd/01 §7.1）。display は R2 由来の外部 URL になる（M4）ので
           next/image は挟まない。
           ⚠ 回答後は出さない。すぐ下に PNG / JPEG の実物が同じ幅で並ぶので、3 枚目は
           スクロールを増やすだけになる */}
       {phase.kind === 'question' ? (
-        <>
+        <ImageColumn>
           <ZoomableImage
             url={question.displayUrl}
             alt="出題画像"
@@ -558,16 +591,19 @@ export function QuizClient({
             }
           />
           {/* 🔒 出してよいのは「拡大できる」ことだけ。倍率も寸法も答えの方向を示さない（prd/04 §3.5） */}
-          <ZoomHint
-            label="拡大して細部を見る"
-            onOpen={() =>
-              setZoom({
-                sources: [{ label: '出題画像', url: question.displayUrl, alt: '出題画像' }],
-                index: 0,
-              })
-            }
-          />
-        </>
+          <div className="flex justify-end px-4 pt-2">
+            <ZoomHint
+              label="拡大して細部を見る"
+              onOpen={() =>
+                setZoom({
+                  sources: [{ label: '出題画像', url: question.displayUrl, alt: '出題画像' }],
+                  index: 0,
+                })
+              }
+            />
+          </div>
+          <ScaleNote naturalWidth={question.width} />
+        </ImageColumn>
       ) : null}
 
       {phase.kind === 'question' ? (
@@ -667,22 +703,26 @@ function ResultPanel({
               {source.label} — {formatBytes(index === 0 ? result.pngBytes : result.jpegBytes)}
             </figcaption>
           </Narrow>
-          <ZoomableImage
-            url={source.url}
-            alt={source.alt}
-            width={width}
-            height={height}
-            onOpen={() => onZoom({ sources, index })}
-          />
+          <ImageColumn>
+            <ZoomableImage
+              url={source.url}
+              alt={source.alt}
+              width={width}
+              height={height}
+              onOpen={() => onZoom({ sources, index })}
+            />
+          </ImageColumn>
         </figure>
       ))}
 
       {/* 🔑 2 枚の比較はレイアウトではなくダイアログが担う（prd/01 §7.3）。
           横並びにするより、**同じ位置で切り替える**ほうが人間の目には差が見える */}
-      <ZoomHint
-        label="2 枚を同じ位置で切り替えて比べる"
-        onOpen={() => onZoom({ sources, index: 0 })}
-      />
+      <Narrow>
+        <ZoomHint
+          label="2 枚を同じ位置で切り替えて比べる"
+          onOpen={() => onZoom({ sources, index: 0 })}
+        />
+      </Narrow>
 
       <Narrow>
         <p className="text-ink-muted text-sm">
