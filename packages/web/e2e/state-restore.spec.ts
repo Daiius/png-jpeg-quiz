@@ -98,21 +98,28 @@ test('リロードしても得点と進行が戻る', async ({ page, request }) 
   await expect(page.getByText(scoreText)).toBeVisible()
 })
 
-test('回答直後にリロードすると正解画面に戻る', async ({ page }) => {
+test('回答直後にリロードしても直前の開示に戻れる', async ({ page }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('button', { name: 'PNG', exact: true })).toBeVisible({
     timeout: 30_000,
   })
 
   await page.waitForTimeout(400)
+  // 正解画面が出ると次問がプリフェッチされる。完了を待ってからリロードする（決定的にするため）
+  const prefetch = page.waitForResponse('**/api/session/*/question')
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
   const verdict = page.getByText(/小さいのは (PNG|JPEG) でした/)
   await expect(verdict).toBeVisible({ timeout: 15_000 })
   const verdictText = await verdict.innerText()
+  await prefetch
 
-  // 🔒 原則 5「回答後は全部見せる・検証できる」— リロードで正解画面を失わない（prd/04 §4）
+  // プリフェッチ後の復元先は次の問題（prd/06 §2.1）
   await page.reload({ waitUntil: 'domcontentloaded' })
-  await expect(page.getByText(verdictText)).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText(/第 2 問/)).toBeVisible({ timeout: 30_000 })
+
+  // 🔒 原則 5 — 直前の開示へは導線から戻れる（prd/04 §4）
+  await page.getByRole('button', { name: '← 前の問題の結果を見直す' }).click()
+  await expect(page.getByText(verdictText)).toBeVisible()
 
   // そこから通常どおり次へ進める
   await page.getByRole('button', { name: '次の問題へ' }).click()

@@ -4,6 +4,7 @@ import type {
   Answer,
   AnswerResult,
   ProfileResult,
+  QuestionResponse,
   QuestionView,
   SessionStateResponse,
   VerificationView,
@@ -320,6 +321,15 @@ export function QuizClient({
     question: QuestionView
     result: AnswerResult
   } | null>(null)
+  /**
+   * 次問のプリフェッチ（GOAL ステップ 4）。正解画面を読んでいる間に次の問題の取得と
+   * display 画像の先読みを済ませ、「次の問題へ」を体感ゼロ待ちにする。
+   *
+   * ⚠ `served_at` が早まり、`elapsed_ms` に正解画面の閲覧時間が乗る（受容済み。prd/03 §7）。
+   * ⚠ 副作用: プリフェッチ後にリロードすると復元先は次の問題になる。直前の結果へは
+   * 出題画面の「前の問題の結果を見直す」導線で戻る（prd/06 §2.1）。
+   */
+  const prefetchRef = useRef<Promise<QuestionResponse | null> | null>(null)
 
   // ⚠ コールバックを effect / useCallback の依存に入れない。親が毎レンダリングで
   // 新しい関数を渡すと出題の取得が繰り返される（M2 で踏んだ二重送信と同じ形）
@@ -332,6 +342,7 @@ export function QuizClient({
     setPhase({ kind: 'loading' })
     setSubmitError(null)
     setPendingAnswer(null)
+    prefetchRef.current = null
     try {
       const response = await fetch(`/api/session/${sessionId}/question`)
       if (response.status === 403) {
@@ -375,6 +386,7 @@ export function QuizClient({
     setPhase({ kind: 'loading' })
     setSubmitError(null)
     setPendingAnswer(null)
+    prefetchRef.current = null
     try {
       const response = await fetch(`/api/session/${sessionId}`)
       if (response.status === 403) {
@@ -416,6 +428,47 @@ export function QuizClient({
   useEffect(() => {
     void bootstrap()
   }, [bootstrap])
+
+  // 正解画面が出たら次問を先読みする。失敗は握りつぶす（advance が通常の取得に落ちる）
+  useEffect(() => {
+    if (phase.kind !== 'result' || !phase.result.hasNext) return
+    if (prefetchRef.current) return
+    prefetchRef.current = (async (): Promise<QuestionResponse | null> => {
+      try {
+        const response = await fetch(`/api/session/${sessionId}/question`)
+        if (!response.ok) return null
+        const body = (await response.json()) as QuestionResponse
+        if (body.status === 'question') {
+          // 本命の待ちは API ではなく画像のダウンロード。display も先読みする
+          new Image().src = body.question.displayUrl
+        }
+        return body
+      } catch {
+        return null
+      }
+    })()
+  }, [phase, sessionId])
+
+  /** 「次の問題へ」。プリフェッチ済みならそれを使い、無ければ通常の取得に落ちる */
+  const advance = useCallback(async () => {
+    const prefetched = prefetchRef.current
+    prefetchRef.current = null
+    if (prefetched) {
+      const body = await prefetched
+      if (body) {
+        setSubmitError(null)
+        setPendingAnswer(null)
+        contextRef.current?.({ mode: body.mode, profileId: body.profileId })
+        if (body.status === 'finished') {
+          setPhase({ kind: 'finished' })
+          return
+        }
+        setPhase({ kind: 'question', question: body.question })
+        return
+      }
+    }
+    await loadQuestion()
+  }, [loadQuestion])
 
   /**
    * 🔒 送るのは**どちらを選んだかだけ**（prd/04 §2）。経過時間はサーバが `served_at` から測る。
@@ -564,6 +617,25 @@ export function QuizClient({
           <p className="tabular-nums">{score.toFixed(2)} 点</p>
         </div>
         {header}
+        {phase.kind === 'question' &&
+        lastOutcome &&
+        lastOutcome.question.index === question.index - 1 ? (
+          // プリフェッチ後にリロードすると復元先は次の問題になる（prd/06 §2.1）。
+          // 直前の開示（prd/04 §4）へはここから戻る
+          <button
+            type="button"
+            onClick={() =>
+              setPhase({
+                kind: 'result',
+                question: lastOutcome.question,
+                result: lastOutcome.result,
+              })
+            }
+            className="mt-1 text-ink-faint text-xs underline"
+          >
+            ← 前の問題の結果を見直す
+          </button>
+        ) : null}
         {phase.kind === 'question' ? (
           // 問いは画像より先に読ませる。ボタンは sticky で下に常駐する
           <p className="mt-2 font-medium">
@@ -639,7 +711,7 @@ export function QuizClient({
           width={question.width}
           height={question.height}
           onZoom={setZoom}
-          onNext={() => void loadQuestion()}
+          onNext={() => void advance()}
         />
       )}
 

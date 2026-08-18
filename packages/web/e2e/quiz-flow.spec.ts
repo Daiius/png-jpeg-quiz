@@ -58,6 +58,32 @@ test('開いた瞬間に出題され、全問回答して完走できる', async
   expect(await page.getByText(/全問終わりました/).innerText()).toBe(finishedText)
 })
 
+test('次の問題はプリフェッチされ、「次の問題へ」で追加の取得が発生しない', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('button', { name: 'PNG', exact: true })).toBeVisible({
+    timeout: 30_000,
+  })
+
+  const questionRequests: string[] = []
+  page.on('request', (request) => {
+    if (/\/api\/session\/[^/]+\/question/.test(request.url())) questionRequests.push(request.url())
+  })
+
+  await page.waitForTimeout(400)
+  const prefetch = page.waitForResponse('**/api/session/*/question')
+  await page.getByRole('button', { name: 'PNG', exact: true }).click()
+  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
+  await prefetch
+
+  // 正解画面の表示中に 1 回だけ先読みされている
+  expect(questionRequests.length).toBe(1)
+
+  // 「次の問題へ」は先読み分を使うので、追加の取得なしで次の問題が出る
+  await page.getByRole('button', { name: '次の問題へ' }).click()
+  await expect(page.getByText(/第 2 問/)).toBeVisible({ timeout: 15_000 })
+  expect(questionRequests.length).toBe(1)
+})
+
 test('出題中にリロードすると同じ問題に戻る', async ({ page }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('button', { name: 'PNG', exact: true })).toBeVisible({

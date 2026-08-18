@@ -161,7 +161,7 @@ encode_profile ──< question_encoding >── question ──── question_
 |---|---|---|
 | `session_id` / `index` | 複合 PK | |
 | `question_id` / `profile_id` | FK | |
-| `served_at` | timestamp | **サーバが出題した時刻**。経過時間の基準 |
+| `served_at` | timestamp | **サーバが出題した時刻**。経過時間の基準。⚠ **次問プリフェッチの時刻になる**（下記） |
 | `answered_at` | timestamp \| null | |
 | `answer` | enum \| null | ユーザーの選択 |
 | `is_correct` | bool \| null | サーバ判定 |
@@ -169,6 +169,10 @@ encode_profile ──< question_encoding >── question ──── question_
 | `awarded_points` | real \| null | 実際に付与した得点 |
 | `difficulty_at_serve` | real | 出題時点の静的難易度（後で式を変えても再計算できるように） |
 
+- ⚠ **クライアントは正解画面の表示中に次問をプリフェッチする**ため、`elapsed_ms` には
+  正解画面を読んでいた時間が乗る。1 問目に説明を読む時間が乗るのと同型で
+  （[06](./06-ranking.md) §2.1）、時間は得点に使わないので害は分析ノイズに留まる。
+  **時間を競技基準にするモードを足すときは、この前提ごと見直す**こと。
 - **`(session_id, question_id)` に一意制約**（同一セッション内の重複出題を防ぐ）。
 - 回答は 1 回だけ。`answer` が既に入っている行への再 POST は拒否する。
   ⚠ 例外は**同一回答の再送**で、採点・集計を再実行せずに保存済みの結果を返す
