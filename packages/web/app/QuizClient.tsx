@@ -21,7 +21,12 @@ type Phase =
   | { kind: 'question'; question: QuestionView }
   | { kind: 'result'; question: QuestionView; result: AnswerResult }
   | { kind: 'finished' }
-  | { kind: 'error'; message: string }
+  /** `recoverable` なら再試行でこの回を続けられる。false は cookie が無い（403）ときだけ */
+  | { kind: 'error'; message: string; recoverable: boolean }
+
+/** 403 = cookie が無い。この回には戻れないので、新規開始だけが出口になる */
+const EXPIRED_MESSAGE =
+  'この回には参加できません（有効期限が切れたか、別のブラウザで始めた回です）。'
 
 function formatBytes(bytes: number): string {
   return `${bytes.toLocaleString('ja-JP')} B`
@@ -264,6 +269,14 @@ export function QuizClient({
   const submittingRef = useRef(false)
   const [score, setScore] = useState(0)
   const [zoom, setZoom] = useState<ZoomRequest | null>(null)
+  // 回答送信の失敗は出題画面の中に出す（画面ごと error に切り替えると再試行の文脈が失われる）
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  /**
+   * 応答不明のまま終わった送信の選択肢。サーバは受理済みかもしれず、その状態で**反対の**
+   * 選択肢を送ると 409 → 次問追随になり、受理済み回答の正解画面と加点を永久に失う
+   * （OCL-C3CDAECF）。回復するまで同じ選択肢だけを再送可能にする。
+   */
+  const [pendingAnswer, setPendingAnswer] = useState<Answer | null>(null)
 
   // ⚠ コールバックを effect / useCallback の依存に入れない。親が毎レンダリングで
   // 新しい関数を渡すと出題の取得が繰り返される（M2 で踏んだ二重送信と同じ形）
@@ -274,18 +287,37 @@ export function QuizClient({
 
   const loadQuestion = useCallback(async () => {
     setPhase({ kind: 'loading' })
-    const response = await fetch(`/api/session/${sessionId}/question`)
-    if (!response.ok) {
-      setPhase({ kind: 'error', message: `出題を取得できませんでした（${response.status}）` })
-      return
+    setSubmitError(null)
+    setPendingAnswer(null)
+    try {
+      const response = await fetch(`/api/session/${sessionId}/question`)
+      if (response.status === 403) {
+        setPhase({ kind: 'error', message: EXPIRED_MESSAGE, recoverable: false })
+        return
+      }
+      if (!response.ok) {
+        setPhase({
+          kind: 'error',
+          message: `出題を取得できませんでした（${response.status}）。`,
+          recoverable: true,
+        })
+        return
+      }
+      const body = await response.json()
+      contextRef.current?.({ mode: body.mode as string, profileId: body.profileId as string })
+      if (body.status === 'finished') {
+        setPhase({ kind: 'finished' })
+        return
+      }
+      setPhase({ kind: 'question', question: body.question as QuestionView })
+    } catch {
+      // ネットワーク断。セッションはサーバに残っているので、破棄せず再試行に誘導する
+      setPhase({
+        kind: 'error',
+        message: '通信に失敗しました。電波の状態を確かめて、もう一度試してください。',
+        recoverable: true,
+      })
     }
-    const body = await response.json()
-    contextRef.current?.({ mode: body.mode as string, profileId: body.profileId as string })
-    if (body.status === 'finished') {
-      setPhase({ kind: 'finished' })
-      return
-    }
-    setPhase({ kind: 'question', question: body.question as QuestionView })
   }, [sessionId])
 
   useEffect(() => {
@@ -301,6 +333,7 @@ export function QuizClient({
     if (submittingRef.current) return
     submittingRef.current = true
     setSubmitting(true)
+    setSubmitError(null)
     try {
       const response = await fetch(`/api/session/${sessionId}/answer`, {
         method: 'POST',
@@ -308,55 +341,100 @@ export function QuizClient({
         body: JSON.stringify({ questionId: question.questionId, answer: chosen }),
       })
 
+      if (response.status === 403) {
+        setPhase({ kind: 'error', message: EXPIRED_MESSAGE, recoverable: false })
+        return
+      }
+      if (response.status === 429) {
+        // 最短回答時間（prd/04 §5.2）。セッションは無傷なので、そのまま答え直せる
+        setSubmitError(
+          'その速さでは受け付けられませんでした。画像をもう少し見てから答えてください。',
+        )
+        return
+      }
+      if (response.status === 409) {
+        // 手元とサーバの進行がずれている（別タブで回答した等）。現在の状態を取り直して追随する
+        await loadQuestion()
+        return
+      }
       if (!response.ok) {
-        setPhase({ kind: 'error', message: `回答を送れませんでした（${response.status}）` })
+        setSubmitError(`回答を送れませんでした（${response.status}）。もう一度お試しください。`)
         return
       }
 
       const result: AnswerResult = await response.json()
+      setPendingAnswer(null)
       setScore((current) => current + result.awardedPoints)
       setPhase({ kind: 'result', question, result })
+    } catch {
+      // 送信か応答のどちらかが落ちた。サーバ側は受理済みかもしれないが、
+      // 同一回答の再送には保存済みの結果が返る（冪等）ので、同じ選択肢の押し直しで回復できる。
+      // 反対の選択肢は pendingAnswer で塞ぐ（上のコメント参照）
+      setPendingAnswer(chosen)
+      setSubmitError(
+        `通信に失敗しました。「${chosen === 'png' ? 'PNG' : 'JPEG'}」をもう一度押すと、安全に再送されます。`,
+      )
     } finally {
       submittingRef.current = false
       setSubmitting(false)
     }
   }
 
-  if (phase.kind === 'loading') {
+  if (phase.kind === 'loading' || phase.kind === 'error' || phase.kind === 'finished') {
     return (
-      <Narrow>
-        <p className="text-ink-faint">読み込み中…</p>
-      </Narrow>
-    )
-  }
+      <div className="flex flex-1 flex-col">
+        <Narrow>
+          {/* 進行の無い画面でも、条件表示と About への導線（header）は失わない */}
+          {header}
+          <div className="mt-6">
+            {phase.kind === 'loading' ? <p className="text-ink-faint">読み込み中…</p> : null}
 
-  if (phase.kind === 'error') {
-    return (
-      <Narrow>
-        <div className="flex flex-col items-start gap-3">
-          <p className="text-wrong">{phase.message}</p>
-          {/* 期限切れ・別ブラウザの URL を開いた場合はここに来る。新しい回を始められるようにする */}
-          <a className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted" href="/">
-            新しく始める
-          </a>
-        </div>
-      </Narrow>
-    )
-  }
+            {phase.kind === 'error' ? (
+              <div className="flex flex-col items-start gap-3">
+                <p className="text-wrong">{phase.message}</p>
+                {phase.recoverable ? (
+                  <>
+                    {/* 🔑 セッションはサーバに残っている。既定の出口は「破棄」ではなく「再試行」 */}
+                    <button
+                      type="button"
+                      onClick={() => void loadQuestion()}
+                      className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted"
+                    >
+                      もう一度試す
+                    </button>
+                    <a className="text-ink-muted text-sm underline" href="/">
+                      新しく始める（この回の得点と進行は失われます）
+                    </a>
+                  </>
+                ) : (
+                  // cookie が無い（403）。この回には戻れないので、新規開始だけを出す
+                  <a
+                    className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted"
+                    href="/"
+                  >
+                    新しく始める
+                  </a>
+                )}
+              </div>
+            ) : null}
 
-  if (phase.kind === 'finished') {
-    return (
-      <Narrow>
-        <div className="flex flex-col items-start gap-4">
-          <h2 className="font-bold text-2xl">おしまい</h2>
-          <p className="text-ink-muted">
-            全問終わりました（{score.toFixed(2)} 点）。ランキングへの登録は M3 で実装します。
-          </p>
-          <a className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted" href="/">
-            もう一度遊ぶ
-          </a>
-        </div>
-      </Narrow>
+            {phase.kind === 'finished' ? (
+              <div className="flex flex-col items-start gap-4">
+                <h2 className="font-bold text-2xl">おしまい</h2>
+                <p className="text-ink-muted">
+                  全問終わりました（{score.toFixed(2)} 点）。ランキングへの登録は M3 で実装します。
+                </p>
+                <a
+                  className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted"
+                  href="/"
+                >
+                  もう一度遊ぶ
+                </a>
+              </div>
+            ) : null}
+          </div>
+        </Narrow>
+      </div>
     )
   }
 
@@ -417,10 +495,13 @@ export function QuizClient({
         // 🔒 画像が縦に長くてもボタンを見せ続け、「全体を見ないまま答える」流れを作らない（prd/01 §7.1）
         <div className="sticky bottom-0 z-10 mt-auto border-line border-t bg-ground/95 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur">
           <Narrow>
+            {/* 送信の失敗はここに出す。ボタンは生きたままなので、押し直せばそのまま再送になる */}
+            {submitError ? <p className="mb-2 text-sm text-wrong">{submitError}</p> : null}
             <div className="flex gap-3">
+              {/* 応答不明の間は、送った側だけを再送可能にする（pendingAnswer の説明を参照） */}
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || (pendingAnswer !== null && pendingAnswer !== 'png')}
                 onClick={() => void submit(question, 'png')}
                 className="flex-1 rounded border border-line-strong px-6 py-4 text-lg font-bold hover:bg-sunken disabled:opacity-50"
               >
@@ -428,7 +509,7 @@ export function QuizClient({
               </button>
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || (pendingAnswer !== null && pendingAnswer !== 'jpeg')}
                 onClick={() => void submit(question, 'jpeg')}
                 className="flex-1 rounded border border-line-strong px-6 py-4 text-lg font-bold hover:bg-sunken disabled:opacity-50"
               >

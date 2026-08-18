@@ -171,21 +171,32 @@ export async function submitAnswer(
     .limit(1)
 
   const served = servedRows[0]
-  if (!served || served.questionId !== questionId) return { status: 'not-current' }
-  // 回答は 1 回だけ。既に入っている行への再 POST は拒否する（prd/03 §7）
-  if (served.answeredAt) return { status: 'already-answered' }
+  if (!served || served.questionId !== questionId) {
+    // 🔁 直前に回答済みの問題への「同一回答の再送」なら、保存済みの結果を返す（冪等）
+    const replayed = await replayAnsweredQuestion(row, questionId, chosen)
+    if (replayed) return { status: 'ok', result: replayed }
+    return { status: 'not-current' }
+  }
+  if (served.answeredAt) {
+    // 回答は 1 回だけ。異なる回答の再 POST は拒否する（prd/03 §7）
+    if (served.answer !== chosen) return { status: 'already-answered' }
+    // 🔁 同一回答の再送。再送側の認証が最初の POST の確定より先に走ると、
+    // ここで回答済み行を読む（競合の窓。OCL-0C8DBA59）。この順序でも冪等に返す
+    const encoding = await findEncoding(questionId, row.profileId)
+    if (!encoding) return { status: 'already-answered' }
+    return {
+      status: 'ok',
+      result: await discloseResult(row, questionId, encoding, {
+        chosen,
+        correct: served.isCorrect ?? encoding.answer === chosen,
+        awardedPoints: served.awardedPoints ?? 0,
+        // 最初の受付で進行は確定済み。この行は row.currentIndex の位置なので、次は +1
+        hasNext: row.currentIndex + 1 < row.questionCount,
+      }),
+    }
+  }
 
-  const encodingRows = await database
-    .select()
-    .from(questionEncoding)
-    .where(
-      and(
-        eq(questionEncoding.questionId, questionId),
-        eq(questionEncoding.profileId, row.profileId),
-      ),
-    )
-    .limit(1)
-  const encoding = encodingRows[0]
+  const encoding = await findEncoding(questionId, row.profileId)
   if (!encoding) return { status: 'not-current' }
 
   // 🔒 経過時間はサーバの `served_at` 基準（prd/03 §7）。クライアントの時計は使わない
@@ -267,7 +278,111 @@ export async function submitAnswer(
     return true
   })
 
-  if (!accepted) return { status: 'already-answered' }
+  if (!accepted) {
+    // 並行 POST に負けた側。同一回答なら保存済みの結果を返し（冪等）、異なる回答なら拒否する
+    const settledRows = await database
+      .select()
+      .from(sessionQuestion)
+      .where(
+        and(
+          eq(sessionQuestion.sessionId, row.id),
+          eq(sessionQuestion.questionIndex, row.currentIndex),
+        ),
+      )
+      .limit(1)
+    const settled = settledRows[0]
+    if (settled?.answeredAt && settled.answer === chosen) {
+      return {
+        status: 'ok',
+        result: await discloseResult(row, questionId, encoding, {
+          chosen,
+          correct: settled.isCorrect ?? encoding.answer === chosen,
+          awardedPoints: settled.awardedPoints ?? 0,
+          hasNext: nextIndex < row.questionCount,
+        }),
+      }
+    }
+    return { status: 'already-answered' }
+  }
+
+  return {
+    status: 'ok',
+    result: await discloseResult(row, questionId, encoding, {
+      chosen,
+      correct,
+      awardedPoints,
+      hasNext: nextIndex < row.questionCount,
+    }),
+  }
+}
+
+/**
+ * 🔁 「現在の問題ではない」再送のうち、**直前に回答済みの問題への同一回答の再送**にだけ、
+ * 保存済みの結果を返す（冪等な再送。prd/02 §4-2）。
+ *
+ * 送信後に応答を失ったクライアントは同じ回答をリトライしてよい。得点・進行は最初の受付時に
+ * 確定済みで、ここでは**読み出すだけ**なので二重採点にならない。
+ * ⚠ **異なる回答の再送は受け付けない**（回答は 1 回だけ。prd/03 §7）。
+ */
+async function replayAnsweredQuestion(
+  row: SessionRow,
+  questionId: string,
+  chosen: Answer,
+): Promise<AnswerResult | null> {
+  if (row.currentIndex < 1) return null
+  const database = getDatabase()
+
+  const prevRows = await database
+    .select()
+    .from(sessionQuestion)
+    .where(
+      and(
+        eq(sessionQuestion.sessionId, row.id),
+        eq(sessionQuestion.questionIndex, row.currentIndex - 1),
+      ),
+    )
+    .limit(1)
+  const prev = prevRows[0]
+  if (!prev || prev.questionId !== questionId || !prev.answeredAt) return null
+  if (prev.answer !== chosen) return null
+
+  const encoding = await findEncoding(questionId, row.profileId)
+  if (!encoding) return null
+
+  return await discloseResult(row, questionId, encoding, {
+    chosen,
+    correct: prev.isCorrect ?? encoding.answer === chosen,
+    awardedPoints: prev.awardedPoints ?? 0,
+    // 進行は最初の受付時に確定済み。currentIndex は既に次の問題を指している
+    hasNext: row.currentIndex < row.questionCount,
+  })
+}
+
+async function findEncoding(
+  questionId: string,
+  profileId: string,
+): Promise<typeof questionEncoding.$inferSelect | undefined> {
+  const rows = await getDatabase()
+    .select()
+    .from(questionEncoding)
+    .where(
+      and(eq(questionEncoding.questionId, questionId), eq(questionEncoding.profileId, profileId)),
+    )
+    .limit(1)
+  return rows[0]
+}
+
+/**
+ * 回答後の開示ペイロードを組み立てる（prd/04 §4「回答後は全部見せる」）。
+ * ⚠ 採点はしない。判定済みの値を受け取って詰めるだけ（正規経路と再送経路で共有する）。
+ */
+async function discloseResult(
+  row: SessionRow,
+  questionId: string,
+  encoding: typeof questionEncoding.$inferSelect,
+  input: { chosen: Answer; correct: boolean; awardedPoints: number; hasNext: boolean },
+): Promise<AnswerResult> {
+  const database = getDatabase()
 
   const assets = await database
     .select({ kind: questionEncodedAsset.kind, objectKey: questionEncodedAsset.objectKey })
@@ -380,23 +495,20 @@ export async function submitAnswer(
   const detail = details[0]
 
   return {
-    status: 'ok',
-    result: {
-      correct,
-      answer: encoding.answer,
-      chosen,
-      pngBytes: encoding.pngBytes,
-      jpegBytes: encoding.jpegBytes,
-      pngUrl: assetUrl(pngKey),
-      jpegUrl: assetUrl(jpegKey),
-      displayUrl: assetUrl(detail?.displayKey ?? ''),
-      log2Ratio: encoding.log2Ratio,
-      awardedPoints,
-      explanation: detail?.explanation ?? null,
-      source: (detail?.source ?? {}) as Record<string, unknown>,
-      profileResults,
-      verification,
-      hasNext: nextIndex < row.questionCount,
-    },
+    correct: input.correct,
+    answer: encoding.answer,
+    chosen: input.chosen,
+    pngBytes: encoding.pngBytes,
+    jpegBytes: encoding.jpegBytes,
+    pngUrl: assetUrl(pngKey),
+    jpegUrl: assetUrl(jpegKey),
+    displayUrl: assetUrl(detail?.displayKey ?? ''),
+    log2Ratio: encoding.log2Ratio,
+    awardedPoints: input.awardedPoints,
+    explanation: detail?.explanation ?? null,
+    source: (detail?.source ?? {}) as Record<string, unknown>,
+    profileResults,
+    verification,
+    hasNext: input.hasNext,
   }
 }

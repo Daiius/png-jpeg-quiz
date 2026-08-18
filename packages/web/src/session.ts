@@ -33,7 +33,8 @@ export async function setSessionCookie(sessionId: string, secret: string): Promi
     sameSite: 'lax',
     secure: process.env['NODE_ENV'] === 'production',
     path: '/',
-    maxAge: 60 * 60 * 6,
+    // 制限時間を廃止し「何日かけてもよい」（prd/04 §5.1）ので、cookie で急かさない
+    maxAge: 60 * 60 * 24 * 30,
   })
 }
 
