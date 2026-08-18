@@ -105,17 +105,21 @@ test('出題取得の通信断は、セッションを保ったまま再試行�
   await page.route('**/api/session/*/question', (route) => route.abort())
   await page.waitForTimeout(400)
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
-  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('p').filter({ hasText: /小さいのは (PNG|JPEG) でした/ })).toBeVisible({
+    timeout: 15_000,
+  })
 
   // プリフェッチは静かに失敗し、「次の問題へ」のフォールバック取得が失敗を表面化させる
   await page.getByRole('button', { name: '次の問題へ' }).click()
-  await expect(page.getByText(/通信に失敗しました/)).toBeVisible()
+  await expect(page.locator('p').filter({ hasText: /通信に失敗しました/ })).toBeVisible()
 
   // 🔑 既定の出口は再試行。復帰後も同じセッションのまま。
   // 次の問題はまだ配信されていないので、直前の正解画面に戻る（そこから普通に進める）
   await page.unroute('**/api/session/*/question')
   await page.getByRole('button', { name: 'もう一度試す' }).click()
-  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('p').filter({ hasText: /小さいのは (PNG|JPEG) でした/ })).toBeVisible({
+    timeout: 15_000,
+  })
   await page.getByRole('button', { name: '次の問題へ' }).click()
   await expect(page.getByText(/第 2 問/)).toBeVisible({ timeout: 15_000 })
   expect(page.url()).toBe(sessionUrl)
@@ -130,7 +134,7 @@ test('回答送信の通信断は、同じ選択肢の押し直しで回復す�
   await page.route('**/api/session/*/answer', (route) => route.abort())
   await page.waitForTimeout(400)
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
-  await expect(page.getByText(/「PNG」をもう一度押すと/)).toBeVisible()
+  await expect(page.locator('p').filter({ hasText: /「PNG」をもう一度押すと/ })).toBeVisible()
 
   // 🔒 応答不明の間、反対の選択肢は塞がる（押せると受理済み回答の正解画面を永久に失う）
   await expect(page.getByRole('button', { name: 'JPEG', exact: true })).toBeDisabled()
@@ -138,7 +142,9 @@ test('回答送信の通信断は、同じ選択肢の押し直しで回復す�
   // 同じ選択肢は生きている。押し直せば（サーバ受理済みでも冪等なので）正解画面に到達する
   await page.unroute('**/api/session/*/answer')
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
-  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('p').filter({ hasText: /小さいのは (PNG|JPEG) でした/ })).toBeVisible({
+    timeout: 15_000,
+  })
 })
 
 test('cookie が無い回では、新規開始だけが出口になる', async ({ page, context }) => {
@@ -151,13 +157,15 @@ test('cookie が無い回では、新規開始だけが出口になる', async (
   await page.route('**/api/session/*/question', (route) => route.abort())
   await page.waitForTimeout(400)
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
-  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('p').filter({ hasText: /小さいのは (PNG|JPEG) でした/ })).toBeVisible({
+    timeout: 15_000,
+  })
 
   // 所有証明（HttpOnly cookie）を失った状態で次へ進もうとする
   await context.clearCookies()
   await page.unroute('**/api/session/*/question')
   await page.getByRole('button', { name: '次の問題へ' }).click()
-  await expect(page.getByText(/この回には参加できません/)).toBeVisible()
+  await expect(page.locator('p').filter({ hasText: /この回には参加できません/ })).toBeVisible()
   await expect(page.getByRole('link', { name: '新しく始める' })).toBeVisible()
   // この回には戻れないので、再試行は出さない
   await expect(page.getByRole('button', { name: 'もう一度試す' })).not.toBeVisible()

@@ -161,6 +161,7 @@ function ZoomDialog({
     <dialog
       ref={dialogRef}
       onClose={onClose}
+      aria-label="拡大表示"
       className="h-dvh max-h-none w-dvw max-w-none bg-darkroom p-0 text-darkroom-ink backdrop:bg-black/70"
     >
       <div className="flex h-full flex-col">
@@ -169,6 +170,7 @@ function ZoomDialog({
             <button
               key={String(option)}
               type="button"
+              aria-pressed={step === option}
               onClick={() => setStep(option)}
               className={
                 step === option
@@ -187,6 +189,7 @@ function ZoomDialog({
                 <button
                   key={source.url}
                   type="button"
+                  aria-pressed={index === i}
                   onClick={() => setIndex(i)}
                   className={
                     index === i
@@ -471,6 +474,46 @@ export function QuizClient({
   }, [loadQuestion])
 
   /**
+   * キーボード入力（1 = PNG / 2 = JPEG。P / J も可、Enter = 次へ）。
+   * 30 問の反復を「見る → 打つ」のリズムにする（「身体感覚として鍛える」prd/README）。
+   * ⚠ 入力要素・ダイアログ表示中は奪わない。ボタンにフォーカスがある Enter はネイティブに任せる。
+   * 依存配列は付けず毎レンダリング登録し直す（ハンドラが常に最新の state を見る）。
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable]')) return
+      if (document.querySelector('dialog[open]')) return
+
+      if (phase.kind === 'question') {
+        const chosen =
+          event.key === '1' || event.key === 'p' || event.key === 'P'
+            ? ('png' as const)
+            : event.key === '2' || event.key === 'j' || event.key === 'J'
+              ? ('jpeg' as const)
+              : null
+        if (!chosen) return
+        // 応答不明の間は送った側だけを再送可能にする（pendingAnswer の説明を参照）
+        if (pendingAnswer !== null && pendingAnswer !== chosen) return
+        event.preventDefault()
+        void submit(phase.question, chosen)
+        return
+      }
+
+      if (phase.kind === 'result' && event.key === 'Enter') {
+        // ボタン・リンク上の Enter はネイティブのクリックに任せる（二重発火を防ぐ）
+        if (target?.closest('button, a, summary')) return
+        event.preventDefault()
+        void advance()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
+  /**
    * 🔒 送るのは**どちらを選んだかだけ**（prd/04 §2）。経過時間はサーバが `served_at` から測る。
    * ⚠ **制限時間は無い**（prd/04 §5.1）。自動送信の経路も無く、送信は必ずクリック起点。
    */
@@ -528,9 +571,30 @@ export function QuizClient({
     }
   }
 
+  /**
+   * スクリーンリーダーへの通知（aria-live）。エラー・完走を読み上げる。
+   * ⚠ **正誤は含めない**。判定の行へのフォーカス移動が読み上げを担うので、両方に載せると
+   * 30 問すべてで二重読み上げになる（OCL-4A9098D7）。
+   * ⚠ ローディングも含めない（プリフェッチで一瞬になり、毎問読み上げると雑音になる）。
+   */
+  const liveText =
+    phase.kind === 'error'
+      ? phase.message
+      : phase.kind === 'finished'
+        ? '全問終わりました。'
+        : phase.kind === 'question'
+          ? (submitError ?? '')
+          : ''
+  const announcer = (
+    <div aria-live="polite" role="status" className="sr-only">
+      {liveText}
+    </div>
+  )
+
   if (phase.kind === 'loading' || phase.kind === 'error' || phase.kind === 'finished') {
     return (
       <div className="flex flex-1 flex-col">
+        {announcer}
         <Narrow>
           {/* 進行の無い画面でも、条件表示と About への導線（header）は失わない */}
           {header}
@@ -609,6 +673,7 @@ export function QuizClient({
     // flex-1 と下の mt-auto で、内容が短いときも 2 択ボタンが画面下端に来る
     // （モバイルでは画像が縦に余るので、そうしないとボタンが宙に浮く）
     <div className="flex flex-1 flex-col gap-6">
+      {announcer}
       <Narrow>
         <div className="flex items-baseline justify-between text-ink-faint text-sm">
           <p>
@@ -749,10 +814,18 @@ function ResultPanel({
     { label: 'JPEG', url: result.jpegUrl, alt: 'JPEG 版' },
   ]
 
+  // 回答すると 2 択ボタンが消えてフォーカスの行き場が無くなる。判定の行へ移す
+  const verdictRef = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    verdictRef.current?.focus()
+  }, [])
+
   return (
     <div className="flex flex-col gap-4">
       <Narrow>
         <p
+          ref={verdictRef}
+          tabIndex={-1}
           className={
             result.correct ? 'text-xl font-bold text-correct' : 'text-xl font-bold text-wrong'
           }
@@ -877,6 +950,7 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
           <button
             key={option}
             type="button"
+            aria-pressed={metric === option}
             onClick={() => setMetric(option)}
             className={
               metric === option
@@ -933,6 +1007,7 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
                 <button
                   key={`${view.jpegQuality}-${view.chromaSubsampling}`}
                   type="button"
+                  aria-pressed={isCurrent}
                   onClick={() => setShown(view)}
                   className={
                     isCurrent

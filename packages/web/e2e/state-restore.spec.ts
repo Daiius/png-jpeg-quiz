@@ -86,7 +86,9 @@ test('リロードしても得点と進行が戻る', async ({ page, request }) 
 
   await page.waitForTimeout(400)
   await page.getByRole('button', { name: correct === 'png' ? 'PNG' : 'JPEG', exact: true }).click()
-  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('p').filter({ hasText: /小さいのは (PNG|JPEG) でした/ })).toBeVisible({
+    timeout: 15_000,
+  })
   await page.getByRole('button', { name: '次の問題へ' }).click()
   await expect(page.getByText(/第 2 問/)).toBeVisible({ timeout: 15_000 })
 
@@ -108,7 +110,7 @@ test('回答直後にリロードしても直前の開示に戻れる', async ({
   // 正解画面が出ると次問がプリフェッチされる。完了を待ってからリロードする（決定的にするため）
   const prefetch = page.waitForResponse('**/api/session/*/question')
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
-  const verdict = page.getByText(/小さいのは (PNG|JPEG) でした/)
+  const verdict = page.locator('p').filter({ hasText: /小さいのは (PNG|JPEG) でした/ })
   await expect(verdict).toBeVisible({ timeout: 15_000 })
   const verdictText = await verdict.innerText()
   await prefetch
@@ -119,7 +121,7 @@ test('回答直後にリロードしても直前の開示に戻れる', async ({
 
   // 🔒 原則 5 — 直前の開示へは導線から戻れる（prd/04 §4）
   await page.getByRole('button', { name: '← 前の問題の結果を見直す' }).click()
-  await expect(page.getByText(verdictText)).toBeVisible()
+  await expect(page.locator('p').filter({ hasText: verdictText })).toBeVisible()
 
   // そこから通常どおり次へ進める
   await page.getByRole('button', { name: '次の問題へ' }).click()

@@ -33,7 +33,9 @@ test('開いた瞬間に出題され、全問回答して完走できる', async
     await page.getByRole('button', { name: chosen, exact: true }).click()
 
     // 正解画面（prd/04 §4）。正誤どちらでも「小さいのは◯◯でした」が出る
-    await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('p').filter({ hasText: /小さいのは (PNG|JPEG) でした/ })).toBeVisible(
+      { timeout: 15_000 },
+    )
 
     if (index + 1 < total) {
       await page.getByRole('button', { name: '次の問題へ' }).click()
@@ -45,17 +47,25 @@ test('開いた瞬間に出題され、全問回答して完走できる', async
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.getByText('おしまい')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '最後の問題の結果を見直す' }).click()
-  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible()
+  await expect(page.locator('p').filter({ hasText: /小さいのは (PNG|JPEG) でした/ })).toBeVisible()
   await page.getByRole('button', { name: '結果を見る' }).click()
 
   await expect(page.getByText('おしまい')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByText(/全問終わりました/)).toBeVisible()
+  await expect(page.locator('p').filter({ hasText: /全問終わりました/ })).toBeVisible()
 
   // 完走画面もリロードで復元される（得点の表示を含めて。prd/06 §2.1）
-  const finishedText = await page.getByText(/全問終わりました/).innerText()
+  const finishedText = await page
+    .locator('p')
+    .filter({ hasText: /全問終わりました/ })
+    .innerText()
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.getByText('おしまい')).toBeVisible({ timeout: 30_000 })
-  expect(await page.getByText(/全問終わりました/).innerText()).toBe(finishedText)
+  expect(
+    await page
+      .locator('p')
+      .filter({ hasText: /全問終わりました/ })
+      .innerText(),
+  ).toBe(finishedText)
 })
 
 test('次の問題はプリフェッチされ、「次の問題へ」で追加の取得が発生しない', async ({ page }) => {
@@ -72,7 +82,9 @@ test('次の問題はプリフェッチされ、「次の問題へ」で追加�
   await page.waitForTimeout(400)
   const prefetch = page.waitForResponse('**/api/session/*/question')
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
-  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('p').filter({ hasText: /小さいのは (PNG|JPEG) でした/ })).toBeVisible({
+    timeout: 15_000,
+  })
   await prefetch
 
   // 正解画面の表示中に 1 回だけ先読みされている
