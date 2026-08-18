@@ -572,19 +572,19 @@ export function QuizClient({
   }
 
   /**
-   * スクリーンリーダーへの通知（aria-live）。正誤・エラー・完走を読み上げる。
-   * ⚠ ローディングは含めない（プリフェッチで一瞬になり、毎問読み上げると雑音になる）。
+   * スクリーンリーダーへの通知（aria-live）。エラー・完走を読み上げる。
+   * ⚠ **正誤は含めない**。判定の行へのフォーカス移動が読み上げを担うので、両方に載せると
+   * 30 問すべてで二重読み上げになる（OCL-4A9098D7）。
+   * ⚠ ローディングも含めない（プリフェッチで一瞬になり、毎問読み上げると雑音になる）。
    */
   const liveText =
-    phase.kind === 'result'
-      ? `${phase.result.correct ? '正解' : '不正解'}。小さいのは ${
-          phase.result.answer === 'png' ? 'PNG' : 'JPEG'
-        } でした。`
-      : phase.kind === 'error'
-        ? phase.message
-        : phase.kind === 'finished'
-          ? '全問終わりました。'
-          : (submitError ?? '')
+    phase.kind === 'error'
+      ? phase.message
+      : phase.kind === 'finished'
+        ? '全問終わりました。'
+        : phase.kind === 'question'
+          ? (submitError ?? '')
+          : ''
   const announcer = (
     <div aria-live="polite" role="status" className="sr-only">
       {liveText}
