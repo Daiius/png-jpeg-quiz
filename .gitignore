@@ -37,6 +37,9 @@ pnpm-debug.log*
 /build/
 /assets/generated/
 
+# DB バックアップ（pnpm db:backup の出力。コミットしない）
+backups/
+
 # OS / editor
 .DS_Store
 *.swp

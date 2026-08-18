@@ -208,6 +208,16 @@ docker compose exec web pnpm db:seed      # シード投入（冪等）
 ## 7. デプロイ姿勢
 
 - **self-host**（Next.js standalone / docker compose）。前段にリバースプロキシ（TLS 終端）。
+- **サーバエラーは構造化ログ（1 行 1 JSON）で stdout に出す**（`instrumentation.ts` の
+  `onRequestError`）。`docker compose logs web` で追える。外部 SaaS には送らない。
+  🔒 ヘッダ・Cookie・ボディはログに残さない（セッションの `secret` が Cookie に載っている）。
+- **バックアップは DB 全体を 1 スナップショットでダンプする**。守るべき実体は可変データ
+  （セッション・回答ログ・スコア。[03](./03-data-model.md) §1 の下段）だが、下段は上段
+  （問題・プロファイル）への外部キーを持つため、**部分ダンプでは整合が壊れる**。
+  上段はパイプラインの再実行と R2 からも再生できるので、含めて困ることもない。
+  `pnpm db:backup` が db コンテナ内で `mysqldump --single-transaction` を実行し、
+  `backups/`（gitignore 対象。🔒 ダンプには `session.secret` が入るため**所有者のみ読める権限**）へ
+  書き出す。定期実行はホストの cron に登録する（リポジトリでは管理しない）。
 - **マイグレーションと seed は本番イメージに同梱**し、使い捨てコンテナとして明示的に実行する
   （適用する SQL とコードのバージョンが構造的に一致する。起動時の自動適用にはしない）。
 - **本番・開発環境の具体情報（ドメイン / TLS / リバプロ / 接続先 / シークレット）は公開リポジトリに含めない。**
