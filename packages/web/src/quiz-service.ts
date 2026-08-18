@@ -177,20 +177,26 @@ export async function submitAnswer(
     if (replayed) return { status: 'ok', result: replayed }
     return { status: 'not-current' }
   }
-  // 回答は 1 回だけ。既に入っている行への再 POST は拒否する（prd/03 §7）
-  if (served.answeredAt) return { status: 'already-answered' }
+  if (served.answeredAt) {
+    // 回答は 1 回だけ。異なる回答の再 POST は拒否する（prd/03 §7）
+    if (served.answer !== chosen) return { status: 'already-answered' }
+    // 🔁 同一回答の再送。再送側の認証が最初の POST の確定より先に走ると、
+    // ここで回答済み行を読む（競合の窓。OCL-0C8DBA59）。この順序でも冪等に返す
+    const encoding = await findEncoding(questionId, row.profileId)
+    if (!encoding) return { status: 'already-answered' }
+    return {
+      status: 'ok',
+      result: await discloseResult(row, questionId, encoding, {
+        chosen,
+        correct: served.isCorrect ?? encoding.answer === chosen,
+        awardedPoints: served.awardedPoints ?? 0,
+        // 最初の受付で進行は確定済み。この行は row.currentIndex の位置なので、次は +1
+        hasNext: row.currentIndex + 1 < row.questionCount,
+      }),
+    }
+  }
 
-  const encodingRows = await database
-    .select()
-    .from(questionEncoding)
-    .where(
-      and(
-        eq(questionEncoding.questionId, questionId),
-        eq(questionEncoding.profileId, row.profileId),
-      ),
-    )
-    .limit(1)
-  const encoding = encodingRows[0]
+  const encoding = await findEncoding(questionId, row.profileId)
   if (!encoding) return { status: 'not-current' }
 
   // 🔒 経過時間はサーバの `served_at` 基準（prd/03 §7）。クライアントの時計は使わない
@@ -340,17 +346,7 @@ async function replayAnsweredQuestion(
   if (!prev || prev.questionId !== questionId || !prev.answeredAt) return null
   if (prev.answer !== chosen) return null
 
-  const encodingRows = await database
-    .select()
-    .from(questionEncoding)
-    .where(
-      and(
-        eq(questionEncoding.questionId, questionId),
-        eq(questionEncoding.profileId, row.profileId),
-      ),
-    )
-    .limit(1)
-  const encoding = encodingRows[0]
+  const encoding = await findEncoding(questionId, row.profileId)
   if (!encoding) return null
 
   return await discloseResult(row, questionId, encoding, {
@@ -360,6 +356,20 @@ async function replayAnsweredQuestion(
     // 進行は最初の受付時に確定済み。currentIndex は既に次の問題を指している
     hasNext: row.currentIndex < row.questionCount,
   })
+}
+
+async function findEncoding(
+  questionId: string,
+  profileId: string,
+): Promise<typeof questionEncoding.$inferSelect | undefined> {
+  const rows = await getDatabase()
+    .select()
+    .from(questionEncoding)
+    .where(
+      and(eq(questionEncoding.questionId, questionId), eq(questionEncoding.profileId, profileId)),
+    )
+    .limit(1)
+  return rows[0]
 }
 
 /**
