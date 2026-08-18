@@ -271,6 +271,12 @@ export function QuizClient({
   const [zoom, setZoom] = useState<ZoomRequest | null>(null)
   // 回答送信の失敗は出題画面の中に出す（画面ごと error に切り替えると再試行の文脈が失われる）
   const [submitError, setSubmitError] = useState<string | null>(null)
+  /**
+   * 応答不明のまま終わった送信の選択肢。サーバは受理済みかもしれず、その状態で**反対の**
+   * 選択肢を送ると 409 → 次問追随になり、受理済み回答の正解画面と加点を永久に失う
+   * （OCL-C3CDAECF）。回復するまで同じ選択肢だけを再送可能にする。
+   */
+  const [pendingAnswer, setPendingAnswer] = useState<Answer | null>(null)
 
   // ⚠ コールバックを effect / useCallback の依存に入れない。親が毎レンダリングで
   // 新しい関数を渡すと出題の取得が繰り返される（M2 で踏んだ二重送信と同じ形）
@@ -282,6 +288,7 @@ export function QuizClient({
   const loadQuestion = useCallback(async () => {
     setPhase({ kind: 'loading' })
     setSubmitError(null)
+    setPendingAnswer(null)
     try {
       const response = await fetch(`/api/session/${sessionId}/question`)
       if (response.status === 403) {
@@ -356,12 +363,17 @@ export function QuizClient({
       }
 
       const result: AnswerResult = await response.json()
+      setPendingAnswer(null)
       setScore((current) => current + result.awardedPoints)
       setPhase({ kind: 'result', question, result })
     } catch {
       // 送信か応答のどちらかが落ちた。サーバ側は受理済みかもしれないが、
-      // 同一回答の再送には保存済みの結果が返る（冪等）ので、同じ選択肢をもう一度でよい
-      setSubmitError('通信に失敗しました。同じ選択肢をもう一度押すと、安全に再送されます。')
+      // 同一回答の再送には保存済みの結果が返る（冪等）ので、同じ選択肢の押し直しで回復できる。
+      // 反対の選択肢は pendingAnswer で塞ぐ（上のコメント参照）
+      setPendingAnswer(chosen)
+      setSubmitError(
+        `通信に失敗しました。「${chosen === 'png' ? 'PNG' : 'JPEG'}」をもう一度押すと、安全に再送されます。`,
+      )
     } finally {
       submittingRef.current = false
       setSubmitting(false)
@@ -486,9 +498,10 @@ export function QuizClient({
             {/* 送信の失敗はここに出す。ボタンは生きたままなので、押し直せばそのまま再送になる */}
             {submitError ? <p className="mb-2 text-sm text-wrong">{submitError}</p> : null}
             <div className="flex gap-3">
+              {/* 応答不明の間は、送った側だけを再送可能にする（pendingAnswer の説明を参照） */}
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || (pendingAnswer !== null && pendingAnswer !== 'png')}
                 onClick={() => void submit(question, 'png')}
                 className="flex-1 rounded border border-line-strong px-6 py-4 text-lg font-bold hover:bg-sunken disabled:opacity-50"
               >
@@ -496,7 +509,7 @@ export function QuizClient({
               </button>
               <button
                 type="button"
-                disabled={submitting}
+                disabled={submitting || (pendingAnswer !== null && pendingAnswer !== 'jpeg')}
                 onClick={() => void submit(question, 'jpeg')}
                 className="flex-1 rounded border border-line-strong px-6 py-4 text-lg font-bold hover:bg-sunken disabled:opacity-50"
               >

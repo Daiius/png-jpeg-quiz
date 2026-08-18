@@ -47,6 +47,33 @@ test('同一回答の再送には保存済みの結果が返る（冪等）。�
   expect(flipped.status()).toBe(409)
 })
 
+test('同一回答の並行 POST は、どちらの順序でも両方 200 になる', async ({ request }) => {
+  const created = await request.post('/api/session', { data: {} })
+  const session = (await created.json()) as { sessionId: string }
+  const first = await request.get(`/api/session/${session.sessionId}/question`)
+  const body = (await first.json()) as { question: { questionId: string } }
+
+  await wait(400)
+  const payload = { questionId: body.question.questionId, answer: 'jpeg' }
+  // 意図的に並行させる（OCL-0C8DBA59 の競合の窓を通す）。勝者は正規経路、
+  // 敗者は「回答済み行を読む」いずれかの経路に入るが、どちらも同じ結果を返すこと
+  const [a, b] = await Promise.all([
+    request.post(`/api/session/${session.sessionId}/answer`, { data: payload }),
+    request.post(`/api/session/${session.sessionId}/answer`, { data: payload }),
+  ])
+  expect(a.status()).toBe(200)
+  expect(b.status()).toBe(200)
+  const resultA = (await a.json()) as Record<string, unknown>
+  const resultB = (await b.json()) as Record<string, unknown>
+  expect(resultB['correct']).toBe(resultA['correct'])
+  expect(resultB['awardedPoints']).toBe(resultA['awardedPoints'])
+
+  // 進行は 1 問ぶんだけ（二重採点になっていない）
+  const next = await request.get(`/api/session/${session.sessionId}/question`)
+  const nextBody = (await next.json()) as { question: { index: number } }
+  expect(nextBody.question.index).toBe(1)
+})
+
 test('速すぎる回答は 429 になるが、セッションは壊れない', async ({ request }) => {
   const created = await request.post('/api/session', { data: {} })
   const session = (await created.json()) as { sessionId: string }
@@ -99,9 +126,12 @@ test('回答送信の通信断は、同じ選択肢の押し直しで回復す�
   await page.route('**/api/session/*/answer', (route) => route.abort())
   await page.waitForTimeout(400)
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
-  await expect(page.getByText(/通信に失敗しました。同じ選択肢をもう一度/)).toBeVisible()
+  await expect(page.getByText(/「PNG」をもう一度押すと/)).toBeVisible()
 
-  // ボタンは生きている。押し直せば（サーバ受理済みでも冪等なので）正解画面に到達する
+  // 🔒 応答不明の間、反対の選択肢は塞がる（押せると受理済み回答の正解画面を永久に失う）
+  await expect(page.getByRole('button', { name: 'JPEG', exact: true })).toBeDisabled()
+
+  // 同じ選択肢は生きている。押し直せば（サーバ受理済みでも冪等なので）正解画面に到達する
   await page.unroute('**/api/session/*/answer')
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
   await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
