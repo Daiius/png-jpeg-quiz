@@ -110,9 +110,12 @@ test('出題取得の通信断は、セッションを保ったまま再試行�
   await page.getByRole('button', { name: '次の問題へ' }).click()
   await expect(page.getByText(/通信に失敗しました/)).toBeVisible()
 
-  // 🔑 既定の出口は再試行。復帰後も同じセッション（URL 不変・第 2 問から）
+  // 🔑 既定の出口は再試行。復帰後も同じセッションのまま。
+  // 次の問題はまだ配信されていないので、直前の正解画面に戻る（そこから普通に進める）
   await page.unroute('**/api/session/*/question')
   await page.getByRole('button', { name: 'もう一度試す' }).click()
+  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
+  await page.getByRole('button', { name: '次の問題へ' }).click()
   await expect(page.getByText(/第 2 問/)).toBeVisible({ timeout: 15_000 })
   expect(page.url()).toBe(sessionUrl)
 })

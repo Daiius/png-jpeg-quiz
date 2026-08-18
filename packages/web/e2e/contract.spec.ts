@@ -61,3 +61,37 @@ test('回答前のレスポンスは、許可されたキーだけを含む', as
   // 🔒 display と encoded はキー空間を分ける（prd/05 §2）。出題 URL は display 側だけを指す
   expect(String(question['displayUrl'])).toContain('/display/')
 })
+
+test('セッション状態レスポンスは、未回答の問題の情報を持たない', async ({ request }) => {
+  const created = await request.post('/api/session', { data: {} })
+  const session = (await created.json()) as Record<string, unknown>
+
+  const response = await request.get(`/api/session/${String(session['sessionId'])}`)
+  expect(response.ok()).toBe(true)
+  const body = (await response.json()) as Record<string, unknown>
+
+  expect(Object.keys(body).sort()).toEqual([
+    'correctCount',
+    'currentIndex',
+    'currentServed',
+    'lastQuestion',
+    'lastResult',
+    'mode',
+    'profileId',
+    'questionCount',
+    'score',
+    'status',
+  ])
+  // 何も回答していないセッションでは、問題に関する情報が一切入らない
+  expect(body['lastQuestion']).toBeNull()
+  expect(body['lastResult']).toBeNull()
+
+  // 🔒 出題を受けた後も、増えるのは「配信済み」の真偽値だけ。未回答の問題の中身は入らない
+  await request.get(`/api/session/${String(session['sessionId'])}/question`)
+  const after = (await (
+    await request.get(`/api/session/${String(session['sessionId'])}`)
+  ).json()) as Record<string, unknown>
+  expect(after['currentServed']).toBe(true)
+  expect(after['lastQuestion']).toBeNull()
+  expect(after['lastResult']).toBeNull()
+})

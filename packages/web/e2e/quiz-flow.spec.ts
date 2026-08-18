@@ -41,6 +41,12 @@ test('開いた瞬間に出題され、全問回答して完走できる', async
 
   await expect(page.getByText('おしまい')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText(/全問終わりました/)).toBeVisible()
+
+  // 完走画面もリロードで復元される（得点の表示を含めて。prd/06 §2.1）
+  const finishedText = await page.getByText(/全問終わりました/).innerText()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('おしまい')).toBeVisible({ timeout: 30_000 })
+  expect(await page.getByText(/全問終わりました/).innerText()).toBe(finishedText)
 })
 
 test('出題中にリロードすると同じ問題に戻る', async ({ page }) => {
