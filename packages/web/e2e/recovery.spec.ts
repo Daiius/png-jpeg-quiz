@@ -101,12 +101,13 @@ test('出題取得の通信断は、セッションを保ったまま再試行�
   })
   const sessionUrl = page.url()
 
-  // 1 問答えてから、次の出題取得を通信断にする
+  // 次問の取得を（プリフェッチも含めて）通信断にしてから、1 問答える
+  await page.route('**/api/session/*/question', (route) => route.abort())
   await page.waitForTimeout(400)
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
   await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
 
-  await page.route('**/api/session/*/question', (route) => route.abort())
+  // プリフェッチは静かに失敗し、「次の問題へ」のフォールバック取得が失敗を表面化させる
   await page.getByRole('button', { name: '次の問題へ' }).click()
   await expect(page.getByText(/通信に失敗しました/)).toBeVisible()
 
@@ -146,12 +147,15 @@ test('cookie が無い回では、新規開始だけが出口になる', async (
     timeout: 30_000,
   })
 
+  // プリフェッチを塞いでおく（成功すると cookie 喪失後も先読み分で次へ進めてしまう）
+  await page.route('**/api/session/*/question', (route) => route.abort())
   await page.waitForTimeout(400)
   await page.getByRole('button', { name: 'PNG', exact: true }).click()
   await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
 
   // 所有証明（HttpOnly cookie）を失った状態で次へ進もうとする
   await context.clearCookies()
+  await page.unroute('**/api/session/*/question')
   await page.getByRole('button', { name: '次の問題へ' }).click()
   await expect(page.getByText(/この回には参加できません/)).toBeVisible()
   await expect(page.getByRole('link', { name: '新しく始める' })).toBeVisible()
