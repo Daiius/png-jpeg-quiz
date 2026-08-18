@@ -20,10 +20,11 @@ import {
   type PoolEntry,
   type ProfileResult,
   type QuestionView,
+  type SessionStateResponse,
   standard30,
   type VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { assetUrl } from './env.ts'
 import type { SessionRow } from './session.ts'
 
@@ -135,6 +136,56 @@ async function toQuestionView(
     width: row.width,
     height: row.height,
     category: row.category,
+  }
+}
+
+/**
+ * セッション状態（リロード復元用。prd/06 §2.1）。
+ *
+ * 🔒 返すのは**プレイヤー自身の集計値**と**回答済みの問題の開示**だけ。
+ * 未回答の問題については、配信済みかどうか（`currentServed`）以上の情報を入れない（prd/04 §3.5）。
+ */
+export async function sessionState(row: SessionRow): Promise<SessionStateResponse> {
+  const database = getDatabase()
+
+  const nearby = await database
+    .select()
+    .from(sessionQuestion)
+    .where(
+      and(
+        eq(sessionQuestion.sessionId, row.id),
+        inArray(sessionQuestion.questionIndex, [row.currentIndex - 1, row.currentIndex]),
+      ),
+    )
+  const prev = nearby.find((entry) => entry.questionIndex === row.currentIndex - 1)
+  const current = nearby.find((entry) => entry.questionIndex === row.currentIndex)
+
+  let lastQuestion: QuestionView | null = null
+  let lastResult: AnswerResult | null = null
+  if (prev?.answeredAt && prev.answer) {
+    const encoding = await findEncoding(prev.questionId, row.profileId)
+    if (encoding) {
+      lastQuestion = await toQuestionView(prev.questionId, prev.questionIndex, row.questionCount)
+      lastResult = await discloseResult(row, prev.questionId, encoding, {
+        chosen: prev.answer,
+        correct: prev.isCorrect ?? encoding.answer === prev.answer,
+        awardedPoints: prev.awardedPoints ?? 0,
+        hasNext: row.currentIndex < row.questionCount,
+      })
+    }
+  }
+
+  return {
+    mode: row.mode,
+    profileId: row.profileId,
+    status: row.status,
+    score: row.score,
+    correctCount: row.correctCount,
+    currentIndex: row.currentIndex,
+    questionCount: row.questionCount,
+    currentServed: current !== undefined,
+    lastQuestion,
+    lastResult,
   }
 }
 

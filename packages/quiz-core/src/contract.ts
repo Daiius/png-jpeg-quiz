@@ -163,3 +163,29 @@ export const answerResultSchema = z.object({
   hasNext: z.boolean(),
 })
 export type AnswerResult = z.infer<typeof answerResultSchema>
+
+// --- GET /api/session/:id ---
+
+/**
+ * セッション状態（リロード復元用。prd/06 §2.1）。
+ *
+ * 🔒 `lastQuestion` / `lastResult` は**直前に回答済みの問題**のもの。回答済みなので開示してよい
+ * （prd/04 §4）。**未回答の問題の情報をこのレスポンスに入れてはいけない**（prd/04 §3.5）。
+ * `score` / `correctCount` はプレイヤー自身の集計値で、個別の問題については何も語らない。
+ */
+export const sessionStateResponseSchema = z.object({
+  mode: z.string(),
+  profileId: profileIdSchema,
+  status: z.enum(['active', 'finished', 'abandoned']),
+  score: z.number(),
+  correctCount: z.number().int().nonnegative(),
+  currentIndex: z.number().int().nonnegative(),
+  questionCount: z.number().int().positive(),
+  /** 現在の問題が配信済みか。復元時に「直前の結果」と「現在の問題」のどちらを見せるかを決める */
+  currentServed: z.boolean(),
+  /** 直前に回答した問題の出題情報（正解画面の復元に要る）。未回答なら null */
+  lastQuestion: questionViewSchema.nullable(),
+  /** 直前に回答した問題の結果。未回答なら null */
+  lastResult: answerResultSchema.nullable(),
+})
+export type SessionStateResponse = z.infer<typeof sessionStateResponseSchema>

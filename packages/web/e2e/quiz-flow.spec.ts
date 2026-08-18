@@ -35,12 +35,27 @@ test('開いた瞬間に出題され、全問回答して完走できる', async
     // 正解画面（prd/04 §4）。正誤どちらでも「小さいのは◯◯でした」が出る
     await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible({ timeout: 15_000 })
 
-    const nextLabel = index + 1 < total ? '次の問題へ' : '結果を見る'
-    await page.getByRole('button', { name: nextLabel }).click()
+    if (index + 1 < total) {
+      await page.getByRole('button', { name: '次の問題へ' }).click()
+    }
   }
+
+  // 最終問題は回答と同時に finished になる。回答直後にリロードしても、
+  // 完走画面から最後の開示へ戻れること（OCL-47168032）
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('おしまい')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '最後の問題の結果を見直す' }).click()
+  await expect(page.getByText(/小さいのは (PNG|JPEG) でした/)).toBeVisible()
+  await page.getByRole('button', { name: '結果を見る' }).click()
 
   await expect(page.getByText('おしまい')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText(/全問終わりました/)).toBeVisible()
+
+  // 完走画面もリロードで復元される（得点の表示を含めて。prd/06 §2.1）
+  const finishedText = await page.getByText(/全問終わりました/).innerText()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('おしまい')).toBeVisible({ timeout: 30_000 })
+  expect(await page.getByText(/全問終わりました/).innerText()).toBe(finishedText)
 })
 
 test('出題中にリロードすると同じ問題に戻る', async ({ page }) => {

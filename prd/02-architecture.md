@@ -89,6 +89,7 @@ interface QuizMode {
 | エンドポイント | 役割 | 返してはいけないもの |
 |---|---|---|
 | `POST /api/session` | セッション開始（mode / profile を指定。**省略時はサーバが既定を選ぶ**。[06](./06-ranking.md) §2.1） | — |
+| `GET /api/session/:id` | セッション状態（得点・進行・**直前に回答済みの問題の結果**）。リロード復元用（[06](./06-ranking.md) §2.1） | **未回答の問題の情報**（入れてよいのは「現在の問題が配信済みか」の真偽値まで） |
 | `GET /api/session/:id/question` | 現在の問題（`display` URL・寸法・カテゴリ）＋ **そのセッションの mode / profile** | **正解 / 両形式のバイト数 / png・jpeg の URL / 難易度の数値 / 得点の重み** |
 | `POST /api/session/:id/answer` | 回答 → 判定・正解・両形式の URL とバイト数・20 プロファイルの結果・解説 | — |
 | `POST /api/session/:id/finish` | 確定してスコア登録 | — |
