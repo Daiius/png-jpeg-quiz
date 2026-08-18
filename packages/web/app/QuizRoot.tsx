@@ -77,6 +77,8 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
 
   return (
     <main className="flex flex-col">
+      {/* 見出し階層の起点。視覚上はヘッダを置かない設計なので sr-only（prd/06 §2.1） */}
+      <h1 className="sr-only">PNG / JPEG どっちが小さい？</h1>
       {/* 出題画面は必ず 1 画面ぶん。説明はその下へスクロールして到達する */}
       <div className="flex min-h-dvh flex-col gap-6 py-6">
         {sessionId === null ? (

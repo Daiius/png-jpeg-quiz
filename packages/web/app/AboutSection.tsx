@@ -23,7 +23,8 @@ export function AboutSection({
   return (
     <section id="about" className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-12 text-sm">
       <div className="flex flex-col gap-3">
-        <h1 className="font-bold text-2xl">PNG / JPEG どっちが小さい？</h1>
+        {/* ページの h1 は QuizRoot の sr-only。ここは同名の見出しだが階層上は h2（見た目は不変） */}
+        <h2 className="font-bold text-2xl">PNG / JPEG どっちが小さい？</h2>
         <p className="text-ink-muted">
           表示された画像を、決まった条件で PNG と JPEG にエンコードしたとき、
           どちらの配布サイズが小さいかを当てる 2 択クイズです。
@@ -32,7 +33,7 @@ export function AboutSection({
       </div>
 
       <div className="flex flex-col gap-2">
-        <h2 className="font-bold">いま適用している条件</h2>
+        <h3 className="font-bold">いま適用している条件</h3>
         <dl className="grid grid-cols-[5rem_1fr] gap-y-2 rounded border border-line bg-sunken px-4 py-3 text-ink-muted">
           <dt className="font-medium">条件 ID</dt>
           <dd className="font-mono">{profileId ?? '（開始待ち）'}</dd>
@@ -70,7 +71,7 @@ export function AboutSection({
       </div>
 
       <div className="flex flex-col gap-2 text-ink-muted">
-        <h2 className="font-bold text-ink">正解の持ち方</h2>
+        <h3 className="font-bold text-ink">正解の持ち方</h3>
         <p>
           正解はサーバだけが持っています。回答するまで、正解も PNG / JPEG のバイト数も 画像の URL
           もブラウザには渡していません。回答すると
