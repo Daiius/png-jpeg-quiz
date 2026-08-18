@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# 可変データ（セッション・回答ログ・スコア）のバックアップ（prd/02 §7 / prd/03 §1 の下段）。
-# 問題データ・アセット（上段）は対象外 —— パイプラインの再実行と R2 が正。
+# DB バックアップ（prd/02 §7）。守るべき実体は可変データ（prd/03 §1 の下段: セッション・
+# 回答ログ・スコア）だが、下段は上段（問題・プロファイル）への外部キーを持つため、
+# **整合の取れた 1 スナップショットとして DB 全体をダンプする**（部分ダンプでは整合が壊れる。
+# 上段はパイプラインの再実行と R2 からも再生できるので、含めて困ることはない）。
 #
 # 使い方:   pnpm db:backup            # ホストから。compose の db コンテナ内で mysqldump を実行
 # 定期実行: ホストの cron に登録する（例: 0 5 * * * cd <repo> && pnpm db:backup）
@@ -15,7 +17,10 @@ if ! docker compose ps db --format '{{.Status}}' 2>/dev/null | grep -q '^Up'; th
   exit 1
 fi
 
+# 🔒 ダンプには session.secret が入る。所有者以外に読ませない（OCL-DA50D148）
+umask 077
 mkdir -p backups
+chmod 700 backups
 stamp=$(date +%Y%m%d-%H%M%S)
 out="backups/png-jpeg-quiz-${stamp}.sql.gz"
 

@@ -211,9 +211,12 @@ docker compose exec web pnpm db:seed      # シード投入（冪等）
 - **サーバエラーは構造化ログ（1 行 1 JSON）で stdout に出す**（`instrumentation.ts` の
   `onRequestError`）。`docker compose logs web` で追える。外部 SaaS には送らない。
   🔒 ヘッダ・Cookie・ボディはログに残さない（セッションの `secret` が Cookie に載っている）。
-- **バックアップは可変データ（セッション・回答ログ・スコア）だけ**が対象
-  （[03](./03-data-model.md) §1 の下段。上段はパイプラインの再実行と R2 が正）。
-  `pnpm db:backup` が db コンテナ内で `mysqldump` を実行し `backups/`（gitignore 対象）へ
+- **バックアップは DB 全体を 1 スナップショットでダンプする**。守るべき実体は可変データ
+  （セッション・回答ログ・スコア。[03](./03-data-model.md) §1 の下段）だが、下段は上段
+  （問題・プロファイル）への外部キーを持つため、**部分ダンプでは整合が壊れる**。
+  上段はパイプラインの再実行と R2 からも再生できるので、含めて困ることもない。
+  `pnpm db:backup` が db コンテナ内で `mysqldump --single-transaction` を実行し、
+  `backups/`（gitignore 対象。🔒 ダンプには `session.secret` が入るため**所有者のみ読める権限**）へ
   書き出す。定期実行はホストの cron に登録する（リポジトリでは管理しない）。
 - **マイグレーションと seed は本番イメージに同梱**し、使い捨てコンテナとして明示的に実行する
   （適用する SQL とコードのバージョンが構造的に一致する。起動時の自動適用にはしない）。
