@@ -16,6 +16,8 @@ import { QuizClient } from './QuizClient.tsx'
 export function QuizRoot({ initialSessionId }: { initialSessionId: string | null }) {
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId)
   const [profileId, setProfileId] = useState<string | null>(null)
+  // モード名の表示（prd/06 §2）。practice はランキング対象外なので、何で遊んでいるかを画面に出す
+  const [mode, setMode] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // 二重起動でセッションを 2 つ作らない（開発時の StrictMode でも effect は 2 回走る）
@@ -84,11 +86,16 @@ export function QuizRoot({ initialSessionId }: { initialSessionId: string | null
             // 条件を変えると別のセッションになる。得点も進行も作り直す
             key={sessionId}
             sessionId={sessionId}
-            onSessionContext={(context) => setProfileId(context.profileId)}
+            onSessionContext={(context) => {
+              setProfileId(context.profileId)
+              setMode(context.mode)
+            }}
             header={
               <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs">
                 <span className="text-ink-faint">条件</span>
                 <span className="font-mono text-ink-muted">{profileId ?? '…'}</span>
+                <span className="text-ink-faint">モード</span>
+                <span className="font-mono text-ink-muted">{mode ?? '…'}</span>
                 <button
                   type="button"
                   onClick={() => setDialogOpen(true)}

@@ -5,6 +5,7 @@ import type {
   AnswerResult,
   ProfileResult,
   QuestionView,
+  SessionStateResponse,
   VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
@@ -320,9 +321,56 @@ export function QuizClient({
     }
   }, [sessionId])
 
+  /**
+   * セッション状態から画面を復元する（prd/06 §2.1）。初回表示・リロード・エラー再試行・
+   * 409（進行ずれ）の追随は、すべてここを起点にする——**得点をサーバの値に合わせ直す**ので、
+   * どの経路でもクライアントの積算ずれが残らない。
+   *
+   * 復元先の選び方: 現在の問題が未配信で直前の結果があれば**正解画面**
+   * （回答直後にリロードしても、検証ビューや 20 条件の表に戻れる。prd/04 §4）。それ以外は出題。
+   */
+  const bootstrap = useCallback(async () => {
+    setPhase({ kind: 'loading' })
+    setSubmitError(null)
+    setPendingAnswer(null)
+    try {
+      const response = await fetch(`/api/session/${sessionId}`)
+      if (response.status === 403) {
+        setPhase({ kind: 'error', message: EXPIRED_MESSAGE, recoverable: false })
+        return
+      }
+      if (!response.ok) {
+        setPhase({
+          kind: 'error',
+          message: `セッションの状態を取得できませんでした（${response.status}）。`,
+          recoverable: true,
+        })
+        return
+      }
+      const state = (await response.json()) as SessionStateResponse
+      contextRef.current?.({ mode: state.mode, profileId: state.profileId })
+      setScore(state.score)
+      if (state.status === 'finished') {
+        setPhase({ kind: 'finished' })
+        return
+      }
+      if (!state.currentServed && state.lastQuestion && state.lastResult) {
+        setPhase({ kind: 'result', question: state.lastQuestion, result: state.lastResult })
+        return
+      }
+      await loadQuestion()
+    } catch {
+      setPhase({
+        kind: 'error',
+        message: '通信に失敗しました。電波の状態を確かめて、もう一度試してください。',
+        recoverable: true,
+      })
+    }
+  }, [sessionId, loadQuestion])
+
   useEffect(() => {
-    void loadQuestion()
-  }, [loadQuestion])
+    void bootstrap()
+  }, [bootstrap])
 
   /**
    * 🔒 送るのは**どちらを選んだかだけ**（prd/04 §2）。経過時間はサーバが `served_at` から測る。
@@ -353,8 +401,9 @@ export function QuizClient({
         return
       }
       if (response.status === 409) {
-        // 手元とサーバの進行がずれている（別タブで回答した等）。現在の状態を取り直して追随する
-        await loadQuestion()
+        // 手元とサーバの進行がずれている（別タブで回答した等）。状態を取り直して追随する
+        // （bootstrap は得点もサーバの値に合わせ直す）
+        await bootstrap()
         return
       }
       if (!response.ok) {
@@ -397,7 +446,7 @@ export function QuizClient({
                     {/* 🔑 セッションはサーバに残っている。既定の出口は「破棄」ではなく「再試行」 */}
                     <button
                       type="button"
-                      onClick={() => void loadQuestion()}
+                      onClick={() => void bootstrap()}
                       className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted"
                     >
                       もう一度試す
