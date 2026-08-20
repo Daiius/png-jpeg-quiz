@@ -37,6 +37,7 @@ import {
   reserveOverlayKey,
 } from './keys.ts'
 import { normalize } from './normalize.ts'
+import { questionValuesFrom } from './question-values.ts'
 import { loadSources, questionIdFor, type SourceAsset } from './source.ts'
 
 /**
@@ -104,45 +105,19 @@ async function buildOne(
     return { encodings: 0, skipped: '全プロファイルで同点（採用しない）' }
   }
 
-  const derivation = {
-    ...(asset.meta.derivation ?? {}),
-    sourceName: asset.name,
-    ...(image.flattenedWith ? { flatten: image.flattenedWith } : {}),
-  }
+  // insert と update で同じ値を使う（片方だけ更新し忘れないように 1 か所で作る）
+  const values = questionValuesFrom(asset, image)
 
   await database
     .insert(question)
     .values({
       id: questionId,
-      width: image.width,
-      height: image.height,
-      category: asset.meta.category,
-      colorCount: Math.min(image.colorCount, 257),
-      flatRatio: image.flatRatio,
-      tags: asset.meta.tags,
-      isSynthetic: false,
-      // 🔒 `meta.json` の宣言は必須（source.ts）。ここで `?? false` に倒さない ──
-      // 書き忘れが「AI ではない」という断定になり、開示義務を静かに落とす（prd/05 §1.1）
-      isAiGenerated: asset.meta.is_ai_generated,
-      derivation,
-      source: asset.meta.source,
-      explanation: asset.meta.explanation ?? null,
+      ...values,
       // status は最後に決める（20 プロファイルとオーバーレイが揃って初めて published にする）
     })
     .onDuplicateKeyUpdate({
       set: {
-        width: image.width,
-        height: image.height,
-        category: asset.meta.category,
-        colorCount: Math.min(image.colorCount, 257),
-        flatRatio: image.flatRatio,
-        tags: asset.meta.tags,
-        // 🔒 `meta.json` の宣言は必須（source.ts）。ここで `?? false` に倒さない ──
-        // 書き忘れが「AI ではない」という断定になり、開示義務を静かに落とす（prd/05 §1.1）
-        isAiGenerated: asset.meta.is_ai_generated,
-        derivation,
-        source: asset.meta.source,
-        explanation: asset.meta.explanation ?? null,
+        ...values,
         /**
          * 🔒 **再生成に入る前に `draft` へ落とす。**
          *
