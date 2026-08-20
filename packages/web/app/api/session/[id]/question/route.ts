@@ -19,8 +19,15 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   // 🔒 プレイヤー自身が選んだ公開情報で、個別問題については何も語らない（prd/04 §3.5）
   const sessionContext = { mode: row.mode, profileId: row.profileId }
 
-  const view = await serveNextQuestion(row)
-  if (!view) return NextResponse.json({ status: 'finished', ...sessionContext })
+  const served = await serveNextQuestion(row)
+  if (!served) return NextResponse.json({ status: 'finished', ...sessionContext })
 
-  return NextResponse.json({ status: 'question', question: view, ...sessionContext })
+  // `hint` は**支払い済み**の色数レンジの再表示（null = 未使用）。無償の開示ではない
+  // ——値が入るのは POST /hint で `hint_used_at` が確定した後だけ（prd/06 §7.3, prd/04 §3.6）
+  return NextResponse.json({
+    status: 'question',
+    question: served.question,
+    hint: served.hint,
+    ...sessionContext,
+  })
 }
