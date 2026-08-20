@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { binarize, quantize } from './derive.ts'
+import { binarize, duotone, inkColor, quantize } from './derive.ts'
 import { countColors, type RawImage } from './metrics.ts'
 
 /** 決定的な擬似ノイズ画像（LCG。乱数モジュールに依存しない） */
@@ -74,5 +74,78 @@ describe('binarize', () => {
     const out = binarize({ data, width: 2, height: 1, channels: 3 })
     expect([...out.data.slice(0, 3)]).toEqual([0, 0, 0])
     expect([...out.data.slice(3, 6)]).toEqual([255, 255, 255])
+  })
+})
+
+describe('duotone', () => {
+  const BLUE = [38, 110, 173] as const
+  const WHITE = [255, 255, 255] as const
+
+  it('🔒 中間色を残さない: どの画素も指定した 2 色のどちらかになる', () => {
+    const out = duotone(noisyImage(32, 32), BLUE, WHITE, 175)
+    expect(countColors(out)).toBe(2)
+    for (let i = 0; i < out.data.length; i += 3) {
+      const pixel = [out.data[i], out.data[i + 1], out.data[i + 2]]
+      const matched = pixel.every((v, c) => v === BLUE[c]) || pixel.every((v, c) => v === WHITE[c])
+      expect(matched).toBe(true)
+    }
+  })
+
+  it('RGBA 入力（4ch）でも RGB 3ch を返し、寸法を保つ', () => {
+    const out = duotone(noisyImage(10, 8, 4), BLUE, WHITE)
+    expect(out.channels).toBe(3)
+    expect(out.width).toBe(10)
+    expect(out.height).toBe(8)
+    expect(out.data.length).toBe(10 * 8 * 3)
+  })
+
+  it('決定的: 同じ入力から常に同じバイト列が出る', () => {
+    const image = noisyImage(24, 24)
+    const a = duotone(image, BLUE, WHITE, 175)
+    const b = duotone(image, BLUE, WHITE, 175)
+    expect(Buffer.from(a.data).equals(Buffer.from(b.data))).toBe(true)
+  })
+})
+
+describe('inkColor', () => {
+  /** 暗部が青・明部が白の 2 値画像に、暗部だけノイズを載せたもの */
+  function inkyImage(ink: readonly [number, number, number], jitter: number): RawImage {
+    const width = 40
+    const height = 40
+    const data = new Uint8Array(width * height * 3)
+    let state = 7
+    for (let i = 0; i < width * height; i++) {
+      const dark = i % 3 !== 0
+      state = (state * 1103515245 + 12345) & 0x7fffffff
+      const noise = (state % (2 * jitter + 1)) - jitter
+      const pixel = dark ? ink.map((v) => Math.min(255, Math.max(0, v + noise))) : [255, 255, 255]
+      data.set(pixel, i * 3)
+    }
+    return { data, width, height, channels: 3 }
+  }
+
+  it('暗部の代表色を返す（明部＝白には引きずられない）', () => {
+    const ink = [38, 110, 173] as const
+    const [r, g, b] = inkColor(inkyImage(ink, 6))
+    expect(Math.abs(r - ink[0])).toBeLessThanOrEqual(2)
+    expect(Math.abs(g - ink[1])).toBeLessThanOrEqual(2)
+    expect(Math.abs(b - ink[2])).toBeLessThanOrEqual(2)
+  })
+
+  it('決定的: 同じ入力から常に同じ色が出る', () => {
+    const image = inkyImage([38, 110, 173], 6)
+    expect(inkColor(image)).toEqual(inkColor(image))
+  })
+
+  it('⚠ 入力を破壊しない（中央値のためにソートしても元バッファは変えない）', () => {
+    const image = inkyImage([38, 110, 173], 6)
+    const before = Buffer.from(image.data)
+    inkColor(image)
+    expect(Buffer.from(image.data).equals(before)).toBe(true)
+  })
+
+  it('暗部が 1 画素も無ければ拒否する', () => {
+    const data = new Uint8Array(3 * 4).fill(255)
+    expect(() => inkColor({ data, width: 2, height: 2, channels: 3 })).toThrow(RangeError)
   })
 })

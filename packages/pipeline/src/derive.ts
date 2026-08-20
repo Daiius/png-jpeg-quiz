@@ -170,24 +170,78 @@ export function quantize(image: RawImage, maxColors: number): RawImage {
   return { data: out, width, height, channels: 3 }
 }
 
+/** RGB 3 チャンネルの色（各 0..255）。2 色スナップのパレット指定に使う */
+export type Rgb = readonly [number, number, number]
+
+const BLACK: Rgb = [0, 0, 0]
+const WHITE: Rgb = [255, 255, 255]
+
+/** Rec.601 の整数近似による輝度（決定的。浮動小数の係数を持ち回らない） */
+export function rec601Luma(r: number, g: number, b: number): number {
+  return (r * 299 + g * 587 + b * 114) / 1000
+}
+
 /**
- * 白黒 2 値へのスナップ。ラスタライズで出たアンチエイリアスの中間色を
- * **純黒 (0,0,0) / 純白 (255,255,255)** のどちらかに落とす。
- * 輝度は Rec.601 の整数近似（決定的）。
+ * **2 色へのスナップ。** ラスタライズで出たアンチエイリアスの中間色を、輝度の閾値で
+ * `ink`（暗い側）か `paper`（明るい側）のどちらかに落とす。
+ *
+ * 🔒 **中間色を 1 画素も残さない。** 出力のユニーク色数は必ず 2 以下になる
+ * （縁に中間色が 1 画素でも残ると、そこだけノイズ源になって「真にフラット」でなくなる）。
  */
-export function binarize(image: RawImage, threshold = 128): RawImage {
+export function duotone(image: RawImage, ink: Rgb, paper: Rgb, threshold = 128): RawImage {
   const { data, width, height, channels } = image
   const pixels = width * height
   const out = new Uint8Array(pixels * 3)
   for (let i = 0; i < pixels; i++) {
     const index = i * channels
-    const luma =
-      ((data[index] ?? 0) * 299 + (data[index + 1] ?? 0) * 587 + (data[index + 2] ?? 0) * 114) /
-      1000
-    const value = luma < threshold ? 0 : 255
-    out[i * 3] = value
-    out[i * 3 + 1] = value
-    out[i * 3 + 2] = value
+    const source =
+      rec601Luma(data[index] ?? 0, data[index + 1] ?? 0, data[index + 2] ?? 0) < threshold
+        ? ink
+        : paper
+    out[i * 3] = source[0]
+    out[i * 3 + 1] = source[1]
+    out[i * 3 + 2] = source[2]
   }
   return { data: out, width, height, channels: 3 }
+}
+
+/**
+ * 白黒 2 値へのスナップ。ラスタライズで出たアンチエイリアスの中間色を
+ * **純黒 (0,0,0) / 純白 (255,255,255)** のどちらかに落とす（`duotone` の白黒版）。
+ */
+export function binarize(image: RawImage, threshold = 128): RawImage {
+  return duotone(image, BLACK, WHITE, threshold)
+}
+
+/**
+ * 暗部（輝度 < `threshold`）の**代表色** — チャンネルごとの中央値。
+ * 元画像のベタ塗り部分の色を 1 色に決めるのに使う（再描画版のインク色）。
+ *
+ * 平均ではなく中央値なのは、**縁のアンチエイリアスと AI 生成の画素ノイズに引きずられない**ため。
+ * ⚠ チャンネルごとに取るので、返る色は元画像に実在する画素とは限らない
+ * （狙いは「ベタ塗りの代表値」であって、実在画素の抽出ではない）。
+ */
+export function inkColor(image: RawImage, threshold = 128): Rgb {
+  const { data, width, height, channels } = image
+  const reds: number[] = []
+  const greens: number[] = []
+  const blues: number[] = []
+  for (let i = 0; i < width * height; i++) {
+    const index = i * channels
+    const r = data[index] ?? 0
+    const g = data[index + 1] ?? 0
+    const b = data[index + 2] ?? 0
+    if (rec601Luma(r, g, b) >= threshold) continue
+    reds.push(r)
+    greens.push(g)
+    blues.push(b)
+  }
+  if (reds.length === 0) {
+    throw new RangeError(`no pixel darker than luma ${threshold}`)
+  }
+  const median = (values: number[]): number => {
+    values.sort((a, b) => a - b)
+    return values[values.length >> 1] ?? 0
+  }
+  return [median(reds), median(greens), median(blues)]
 }
