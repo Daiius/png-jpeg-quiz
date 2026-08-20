@@ -1,13 +1,37 @@
 import type { SourceMeta } from './source.ts'
 
 /**
- * `derive:geometric` が書き出す派生素材の `meta.json`（prd/05 §1, §4）。
+ * `derive:geometric` が書き出す派生素材の `meta.json` と、その**前提になる原本の同定**
+ * （prd/05 §1, §4）。
  *
  * CLI 本体（`derive-geometric-cli.ts`）は import しただけで実行されるので、
  * **静的テストから読めるようにここへ分けてある**。
  */
 
 export const QUANT_COLORS = 16
+
+/**
+ * 原本 `assets/source/ai-geometric.png` の SHA-256。
+ *
+ * 🔒 **入力がこれと一致しなければ CLI は止める。** ここに並ぶ出典・作者・ライセンスは
+ * **この 1 枚に対する事実**であって、入力から導いた値ではない。寸法しか見ずに通すと、
+ * 同寸の別画像や差し替わった既定ファイルに OpenAI / Daiius の来歴が付いたまま
+ * DB と回答後表示へ流れる（prd/05 §1: 出典・作者・ライセンスが取れる素材だけ採用する）。
+ */
+export const SOURCE_SHA256 = 'b4a3422303c9026b3cf57b7a2ec3c1017a857c3046880762162a5e81daa25697'
+
+/** 入力が既知の原本かを確かめる。**一致しなければ派生素材を作らせない。** */
+export function assertKnownSource(sha256: string, sourcePath: string): void {
+  if (sha256 === SOURCE_SHA256) return
+  throw new Error(
+    [
+      `入力が既知の ai-geometric.png ではないので中断する: ${sourcePath}`,
+      `  expected sha256=${SOURCE_SHA256}`,
+      `  actual   sha256=${sha256}`,
+      '  この CLI は ai-geometric.png 専用で、出典・ライセンスを固定で書き出す（prd/05 §1）。',
+    ].join('\n'),
+  )
+}
 
 export const QUANT_META = {
   source: {
@@ -31,6 +55,7 @@ export const QUANT_META = {
     source: 'ai-geometric',
     colors: QUANT_COLORS,
     method: 'median-cut（ディザなし・決定的）',
+    sourceSha256: SOURCE_SHA256,
     script: 'packages/pipeline/src/derive-geometric-cli.ts',
     note: 'AI 生成由来の画素ノイズを 16 色へ丸める。「減色してもまだ JPEG が勝つか」を元画像・クリーン 2 色版と対で見せる意地悪問題ペアの素材（prd/05 §4）',
   },
@@ -59,6 +84,7 @@ export const CLEAN_META = {
     source: 'ai-geometric',
     colors: 2,
     method: 'SVG ラスタライズ + 白黒 2 値化（アンチエイリアスの中間色を除去）',
+    sourceSha256: SOURCE_SHA256,
     script: 'packages/pipeline/src/derive-geometric-cli.ts',
     note: '見た目は元画像と同じだがノイズゼロ。「真にフラットなら PNG が勝つ」を元画像・16 色減色版と対で見せる意地悪問題ペアの素材（prd/05 §4）',
   },

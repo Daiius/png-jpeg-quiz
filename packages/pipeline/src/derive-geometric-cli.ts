@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
 import { binarize, quantize } from './derive.ts'
-import { CLEAN_META, QUANT_COLORS, QUANT_META } from './derive-geometric-meta.ts'
+import { assertKnownSource, CLEAN_META, QUANT_COLORS, QUANT_META } from './derive-geometric-meta.ts'
 import { countColors, flatRatio, type RawImage } from './metrics.ts'
 import { normalize } from './normalize.ts'
 
@@ -18,6 +18,9 @@ import { normalize } from './normalize.ts'
  * 使い方:
  *   pnpm --filter @png-jpeg-quiz/pipeline derive:geometric [sourcePath] [outDir]
  *   （省略時はリポジトリルートの assets/source/ai-geometric.png → assets/source/）
+ *
+ * 🔒 **ai-geometric.png 専用。** 出典・ライセンスを固定で書き出すため、
+ * 入力の SHA-256 が既知の原本と一致しなければ中断する（`SOURCE_SHA256`）。
  *
  * 🔒 **決定的。** 乱数・ディザなし。同じ入力 + 同じ sharp 版なら再実行で同一バイトになる。
  * 正解（PNG か JPEG か）はここでは決めない — `pnpm quiz:build` の実測が決める。
@@ -95,7 +98,12 @@ async function main(argv: string[]): Promise<void> {
   const outDir = argv[1] ?? path.join(repoRoot, 'assets', 'source')
   await mkdir(outDir, { recursive: true })
 
-  const original = await normalize(await readFile(sourcePath))
+  // 🔒 出典・ライセンスは ai-geometric.png 固定で書き出すので、**原本そのものかを内容で確かめる**。
+  // 寸法だけの確認では、同寸の別画像や差し替わった既定ファイルに来歴が付いてしまう（prd/05 §1）。
+  const sourceBytes = await readFile(sourcePath)
+  assertKnownSource(sha256(sourceBytes), sourcePath)
+
+  const original = await normalize(sourceBytes)
   assert.equal(original.width, EXPECTED.width, `source width must be ${EXPECTED.width}`)
   assert.equal(original.height, EXPECTED.height, `source height must be ${EXPECTED.height}`)
 
