@@ -85,10 +85,18 @@ function ScaleNote({ naturalWidth }: { naturalWidth: number }) {
   )
 }
 
-/** 減点率の表示（prd/06 §7.2）。0 なら「減点なし」（practice） */
-function penaltyLabel(hint: HintConfig): string {
-  if (hint.penaltyRate <= 0) return '減点なし'
-  return `この問題の得点 −${Math.round(hint.penaltyRate * 100)}%`
+/**
+ * ヒントを開示する前に出す警告文（prd/06 §7.5）。**2 度押しの 1 度目**で表示する。
+ *
+ * ⚠ ボタンのラベルには減点を書かない。「（減点なし）」の括弧書きは
+ * 「ヒントを見ても減点されない」と読めてしまう（2026-08-20 のフィードバック）。
+ * 🔒 減点率はモード定義（`quiz-core` の `HintConfig`）から算出する。UI 側に 50 を書かない。
+ */
+function hintWarning(hint: HintConfig): string {
+  if (hint.penaltyRate <= 0) {
+    return '練習モードなので減点はありません。もう一度押すと表示します'
+  }
+  return `ヒント（色数表示）を見ると得点が −${Math.round(hint.penaltyRate * 100)}% になります。もう一度押すと表示します`
 }
 
 /** レンジの表示（prd/06 §7.1 の表と同じ含意で書く） */
@@ -96,72 +104,6 @@ function colorRangeLabel(range: ColorRange): { value: string; meaning: string } 
   return range === 'le256'
     ? { value: '256 色以下', meaning: '可逆パレット化が届く範囲' }
     : { value: '256 色超', meaning: '平坦に見えても画素レベルのノイズがありうる範囲' }
-}
-
-/**
- * 色数ヒントの確認ダイアログ（prd/06 §7.5）。
- *
- * **誤タップ一発では開示されない 2 段階**の 2 段目。減点率を明示し、
- * 取り消せないことを開示前に伝える。確定するまでサーバには何も送らない。
- * ⚠ dialog の既定背景は `canvas`（＝白）。トークンを当てないとダークで白いまま浮く（prd/08 §3）。
- */
-function HintConfirmDialog({
-  hint,
-  busy,
-  error,
-  onConfirm,
-  onClose,
-}: {
-  hint: HintConfig
-  busy: boolean
-  /** 要求が失敗したときのメッセージ。閉じずにここへ出す（再試行できる） */
-  error: string | null
-  onConfirm: () => void
-  onClose: () => void
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
-    dialogRef.current?.showModal()
-  }, [])
-
-  return (
-    <dialog
-      ref={dialogRef}
-      onClose={onClose}
-      aria-label="色数ヒントの確認"
-      className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded border border-line bg-surface p-0 text-ink backdrop:bg-black/50"
-    >
-      <div className="flex flex-col gap-4 p-6">
-        <h2 className="font-bold text-lg">色数ヒントを表示しますか？</h2>
-        <p className="text-ink-muted text-sm">
-          この画像の色数を 2 段階（256 色以下 / 256 色超）で表示します。
-        </p>
-        <p className="font-medium text-caution text-sm">
-          {hint.penaltyRate > 0
-            ? `表示した時点で、この問題の得点が ${Math.round(hint.penaltyRate * 100)}% 減ります（正解しても減点後の点数になります）。表示後に取り消すことはできません。`
-            : '練習モードなので減点はありません（ランキングにも載りません）。'}
-        </p>
-        {error ? <p className="text-sm text-wrong">{error}</p> : null}
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onConfirm}
-            className="rounded bg-ink px-6 py-3 font-bold text-ground hover:bg-ink-muted disabled:opacity-50"
-          >
-            表示する{hint.penaltyRate > 0 ? `（−${Math.round(hint.penaltyRate * 100)}%）` : ''}
-          </button>
-          <button
-            type="button"
-            onClick={() => dialogRef.current?.close()}
-            className="text-ink-muted text-sm underline"
-          >
-            やめておく
-          </button>
-        </div>
-      </div>
-    </dialog>
-  )
 }
 
 /**
@@ -396,7 +338,11 @@ export function QuizClient({
    * POST /hint の応答か、出題応答の `hint`（リロード復元）のみ。null = 未使用。
    */
   const [hint, setHint] = useState<ColorRange | null>(null)
-  const [hintDialogOpen, setHintDialogOpen] = useState(false)
+  /**
+   * 2 度押しの 1 度目を踏んだ状態（prd/06 §7.5）。true の間だけ警告文を出し、
+   * もう一度押されたら開示する。**誤タップ一発では開示しない**ための唯一の関門。
+   */
+  const [hintArmed, setHintArmed] = useState(false)
   const [hintBusy, setHintBusy] = useState(false)
   const [hintError, setHintError] = useState<string | null>(null)
   // 開示直後にバッジへフォーカスを移す（支援技術に開示を伝える）。復元時は動かさない
@@ -441,7 +387,7 @@ export function QuizClient({
     setSubmitError(null)
     setPendingAnswer(null)
     setHint(null)
-    setHintDialogOpen(false)
+    setHintArmed(false)
     setHintError(null)
     prefetchRef.current = null
     try {
@@ -563,7 +509,7 @@ export function QuizClient({
       if (body) {
         setSubmitError(null)
         setPendingAnswer(null)
-        setHintDialogOpen(false)
+        setHintArmed(false)
         setHintError(null)
         contextRef.current?.({ mode: body.mode, profileId: body.profileId })
         setMode(body.mode)
@@ -679,8 +625,8 @@ export function QuizClient({
   }
 
   /**
-   * 色数ヒントの開示要求（prd/06 §7.3）。確認ダイアログの「表示する」からだけ呼ばれる
-   * ——ボタン → 確認の 2 段階で、誤タップ一発では開示されない（prd/06 §7.5）。
+   * 色数ヒントの開示要求（prd/06 §7.3）。**同じボタンの 2 度目の押下**からだけ呼ばれる
+   * ——1 度目は警告を出すだけで、誤タップ一発では開示されない（prd/06 §7.5）。
    * 🔒 サーバが記録してから返す。この POST は冪等（再試行しても二重減点にならない）。
    */
   async function revealHint(question: QuestionView) {
@@ -694,13 +640,13 @@ export function QuizClient({
         body: JSON.stringify({ questionId: question.questionId }),
       })
       if (response.status === 403) {
-        setHintDialogOpen(false)
+        setHintArmed(false)
         setPhase({ kind: 'error', message: EXPIRED_MESSAGE, recoverable: false })
         return
       }
       if (response.status === 409) {
         // 手元とサーバの進行がずれている（別タブで回答した等）。状態を取り直して追随する
-        setHintDialogOpen(false)
+        setHintArmed(false)
         await bootstrap()
         return
       }
@@ -711,7 +657,7 @@ export function QuizClient({
       const body = (await response.json()) as { colorRange: ColorRange }
       hintJustRevealedRef.current = true
       setHint(body.colorRange)
-      setHintDialogOpen(false)
+      setHintArmed(false)
     } catch {
       // 冪等な POST なので、そのまま押し直してよい（支払い済みなら保存済みレンジが返る）
       setHintError('通信に失敗しました。もう一度お試しください。')
@@ -827,6 +773,17 @@ export function QuizClient({
   const { question } = phase
   // ヒントはモード定義のオプション（prd/06 §7.4）。無いモードでは UI ごと出さない
   const hintConfig = mode ? (findMode(mode)?.hint ?? null) : null
+  /**
+   * ヒントボタンの下に出す 1 行（prd/06 §7.5）。live region は常設し、中身だけ差し替える
+   * ——後から live region ごと差し込むと読み上げが起きない環境がある。
+   * エラーを優先する（再試行の案内が警告に隠れない）。
+   */
+  let hintNotice: { text: string; tone: string } | null = null
+  if (hintError) {
+    hintNotice = { text: hintError, tone: 'text-sm text-wrong' }
+  } else if (hintArmed && hintConfig) {
+    hintNotice = { text: hintWarning(hintConfig), tone: 'text-caution text-xs' }
+  }
 
   return (
     // flex-1 と下の mt-auto で、内容が短いときも 2 択ボタンが画面下端に来る
@@ -899,21 +856,41 @@ export function QuizClient({
             />
           </div>
           <ScaleNote naturalWidth={question.width} />
-          {/* 色数ヒント（prd/06 §7.5）。sticky な 2 択ボタンとは離れた情報欄に置き、
-              開くのは確認ダイアログ——誤タップ一発では開示されない */}
+          {/* 色数ヒント（prd/06 §7.5）。sticky な 2 択ボタンとは離れた情報欄に置く。
+              開示は**同じボタンの 2 度押し**——1 度目は警告を出すだけで、誤タップ一発では開示されない */}
           {hintConfig ? (
             <div className="px-4 pt-3">
               {hint === null ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHintError(null)
-                    setHintDialogOpen(true)
-                  }}
-                  className="rounded border border-line-strong px-4 py-2 text-ink-muted text-sm hover:bg-sunken"
-                >
-                  ヒントを見る（{penaltyLabel(hintConfig)}）
-                </button>
+                <div>
+                  <button
+                    type="button"
+                    disabled={hintBusy}
+                    // 警告が出ている間だけ結び付ける（読み上げで「押すと何が起きるか」が届く）
+                    aria-describedby={hintArmed ? 'hint-notice' : undefined}
+                    onClick={() => {
+                      setHintError(null)
+                      // 1 度目は警告を出すだけ。2 度目で初めてサーバへ要求する
+                      if (!hintArmed) {
+                        setHintArmed(true)
+                        return
+                      }
+                      void revealHint(question)
+                    }}
+                    className={`rounded border px-4 py-2 text-sm hover:bg-sunken disabled:opacity-50 ${
+                      hintArmed
+                        ? 'border-caution text-caution'
+                        : 'border-line-strong text-ink-muted'
+                    }`}
+                  >
+                    ヒントを見る
+                  </button>
+                  {/* 🔒 警告は live region に出す（読み上げ環境でも 1 度目の押下で警告が届く） */}
+                  <p id="hint-notice" aria-live="polite">
+                    {hintNotice ? (
+                      <span className={`mt-2 block ${hintNotice.tone}`}>{hintNotice.text}</span>
+                    ) : null}
+                  </p>
+                </div>
               ) : (
                 <p
                   ref={hintBadgeRef}
@@ -977,19 +954,6 @@ export function QuizClient({
           onNext={() => void advance()}
         />
       )}
-
-      {hintDialogOpen && phase.kind === 'question' && hintConfig ? (
-        <HintConfirmDialog
-          hint={hintConfig}
-          busy={hintBusy}
-          error={hintError}
-          onConfirm={() => void revealHint(question)}
-          onClose={() => {
-            setHintDialogOpen(false)
-            setHintError(null)
-          }}
-        />
-      ) : null}
 
       {zoom ? (
         <ZoomDialog
