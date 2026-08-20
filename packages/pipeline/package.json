@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "node --experimental-strip-types src/cli.ts",
-    "recalc": "node --experimental-strip-types src/recalc-cli.ts"
+    "recalc": "node --experimental-strip-types src/recalc-cli.ts",
+    "derive:geometric": "node --experimental-strip-types src/derive-geometric-cli.ts"
   },
   "dependencies": {
     "@jsquash/oxipng": "catalog:",
