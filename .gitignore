@@ -30,6 +30,11 @@ pnpm-debug.log*
 # ローカル専用のエージェント向けルール/情報（gitignore。存在すれば AGENTS.md から参照）
 .claude/local/
 
+# subagent が使う worktree（Agent ツールの isolation: worktree）。中身は別ブランチの
+# チェックアウトそのもので、追跡対象ではない。ignore が無いと `git add -A` で
+# worktree 内のソース一式が乗る
+.claude/worktrees/
+
 # Playwright MCP のスクショ出力（グローバル gitignore 対象だが念のため）
 .playwright-mcp/
 
