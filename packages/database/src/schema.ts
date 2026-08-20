@@ -238,9 +238,16 @@ export const sessionQuestion = mysqlTable(
      * 回答トランザクションごと失敗し、その問題から先へ進めなくなる。
      */
     elapsedMs: bigint('elapsed_ms', { mode: 'number' }),
+    /** ⚠ ヒント使用時は**減点適用後**の値（prd/06 §7.2） */
     awardedPoints: double('awarded_points'),
     /** 出題時点の静的難易度（後で式を変えても再計算できるように） */
     difficultyAtServe: double('difficulty_at_serve').notNull(),
+    /**
+     * 色数ヒントを開示した時刻（prd/03 §7 / prd/06 §7）。null = 未使用。
+     * 🔒 **永続化が開示に先行する**——この列を書いた後にだけレンジを返す（prd/04 §3.6）。
+     * 回答済み（`answered_at` 非 null）の行には書かない。
+     */
+    hintUsedAt: timestamp('hint_used_at', { fsp: 3 }),
   },
   (table) => [
     primaryKey({ columns: [table.sessionId, table.questionIndex] }),

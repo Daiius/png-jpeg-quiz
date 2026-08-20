@@ -70,3 +70,31 @@ test('トグル群は aria-pressed で状態を示す', async ({ page }) => {
     'false',
   )
 })
+
+/**
+ * 色数ヒントの 2 度押し（prd/06 §7.5）。確認ダイアログは使わず、同じボタンを 2 度押させる。
+ * 1 度目で出す警告は live region に載せる——読み上げ環境でも「押すと何が起きるか」が届く。
+ */
+test('色数ヒントは同じボタンの 2 度押しで開示される', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+
+  const hintButton = page.getByRole('button', { name: 'ヒントを見る' })
+  await expect(hintButton).toBeVisible({ timeout: 30_000 })
+  // 🔒 ラベルに括弧書きの減点表示を持たせない（「減点なし」が「見ても減点されない」と読める）
+  await expect(hintButton).toHaveText('ヒントを見る')
+
+  const notice = page.locator('#hint-notice')
+  const badge = page.locator('p').filter({ hasText: '色数ヒント:' })
+
+  // 1 度目は警告だけ。開示はされない
+  await hintButton.click()
+  await expect(notice).toHaveAttribute('aria-live', 'polite')
+  await expect(notice).toHaveText(/もう一度押すと表示します/)
+  await expect(badge).toHaveCount(0)
+
+  // 2 度目で開示（2 段階レンジ。prd/06 §7.1）。開示直後はバッジにフォーカスが移る
+  await hintButton.click()
+  await expect(badge).toBeVisible({ timeout: 15_000 })
+  await expect(badge).toContainText(/256 色(以下|超)/)
+  await expect(badge).toBeFocused()
+})

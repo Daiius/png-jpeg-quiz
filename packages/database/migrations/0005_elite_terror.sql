@@ -1,0 +1,1 @@
+ALTER TABLE `session_question` ADD `hint_used_at` timestamp(3);

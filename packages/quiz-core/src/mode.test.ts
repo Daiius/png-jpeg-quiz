@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
+import { HINT_PENALTY_RATE } from './hint.ts'
 import {
   classifyTiming,
   defaultModeForPool,
   findMode,
+  type LockedForSettle,
   MIN_ANSWER_MS,
   type ModeState,
   type PoolEntry,
   practice,
+  type SettleOutcome,
   STANDARD_30_QUESTION_COUNT,
+  settleAnswer,
   standard30,
   targetDifficulty,
 } from './mode.ts'
@@ -140,6 +144,102 @@ describe('defaultModeForPool', () => {
     for (const poolSize of [1, 5, 21, 29, 30, 31, 200]) {
       const mode = defaultModeForPool(poolSize)
       expect(mode.questionCount(poolSize)).toBeLessThanOrEqual(poolSize)
+    }
+  })
+})
+
+describe('モードの色数ヒント設定（prd/06 §7.4）', () => {
+  const base = { correct: true, answer: 'png', difficulty: 0.5, pngWinRate: 0.48 } as const
+
+  it('standard-30 は一律 ×0.5 の減点つきで許可する', () => {
+    expect(standard30.hint).toEqual({ kind: 'color-count-range', penaltyRate: HINT_PENALTY_RATE })
+    const full = standard30.score(base)
+    expect(standard30.score({ ...base, hintUsed: true })).toBeCloseTo(full * 0.5, 10)
+  })
+
+  it('practice は減点なしで許可する（ランキングに載らない）', () => {
+    expect(practice.hint).toEqual({ kind: 'color-count-range', penaltyRate: 0 })
+    expect(practice.score({ ...base, hintUsed: true })).toBe(practice.score(base))
+  })
+
+  it('ヒント未使用の得点はこれまでと変わらない', () => {
+    expect(standard30.score(base)).toBe(practice.score(base))
+    expect(standard30.score(base)).toBeGreaterThan(0)
+  })
+})
+
+describe('settleAnswer（ヒントと回答の直列化。prd/06 §7.3 / OCL-FC970B81）', () => {
+  const scoreInput = { correct: true, answer: 'png', difficulty: 0.5, pngWinRate: 0.48 } as const
+  const locked = (overrides: Partial<LockedForSettle> = {}): LockedForSettle => ({
+    answeredAt: null,
+    hintUsedAt: null,
+    ...overrides,
+  })
+  const full = standard30.score(scoreInput)
+  /** `award` を前提にした得点の取り出し（union を絞る） */
+  const points = (outcome: SettleOutcome): number => {
+    if (outcome.status !== 'award') throw new Error(`award ではない: ${outcome.status}`)
+    return outcome.awardedPoints
+  }
+
+  it('ヒント未使用なら満額', () => {
+    expect(settleAnswer(standard30, locked(), scoreInput)).toEqual({
+      status: 'award',
+      hintUsed: false,
+      awardedPoints: full,
+    })
+  })
+
+  it('🔒 /hint が先に確定していたら減点が効く（ロック内で読み直した値で採点する）', () => {
+    const outcome = settleAnswer(standard30, locked({ hintUsedAt: new Date() }), scoreInput)
+    expect(outcome).toEqual({
+      status: 'award',
+      hintUsed: true,
+      awardedPoints: full * (1 - HINT_PENALTY_RATE),
+    })
+  })
+
+  it('🔒 ロック前の古い読み取りでは満額になる並行順序でも、ロック後の値なら減点される', () => {
+    // 回答の受付が始まった時点（ロック前）の断面。まだ /hint は commit されていない
+    const beforeLock = locked()
+    // ロックを取ってから読み直した断面。この間に /hint が commit された
+    const afterLock = locked({ hintUsedAt: new Date() })
+    // ⚠ 古い断面で採点すると満額が保存され、50% 減点をすり抜ける（これが OCL-FC970B81）
+    expect(points(settleAnswer(standard30, beforeLock, scoreInput))).toBe(full)
+    // 🔒 ロック後の断面を渡す限り、先に確定した /hint の減点は必ず効く
+    expect(points(settleAnswer(standard30, afterLock, scoreInput))).toBeCloseTo(
+      full * (1 - HINT_PENALTY_RATE),
+      10,
+    )
+  })
+
+  it('🔒 回答が先に確定していたら受け付けない（二重採点しない）', () => {
+    // 逆向きの先勝ち: 回答が先なら /hint 側は decideHint が reject-answered を返す
+    expect(settleAnswer(standard30, locked({ answeredAt: new Date() }), scoreInput)).toEqual({
+      status: 'already-answered',
+    })
+    expect(
+      settleAnswer(
+        standard30,
+        locked({ answeredAt: new Date(), hintUsedAt: new Date() }),
+        scoreInput,
+      ),
+    ).toEqual({ status: 'already-answered' })
+  })
+
+  it('practice では減点なし（モード定義の定率をそのまま使う）', () => {
+    const outcome = settleAnswer(practice, locked({ hintUsedAt: new Date() }), scoreInput)
+    expect(outcome).toEqual({
+      status: 'award',
+      hintUsed: true,
+      awardedPoints: practice.score(scoreInput),
+    })
+  })
+
+  it('不正解・偏りきったプールは 0 点（-log2(0) の発散を採点に持ち込まない）', () => {
+    expect(points(settleAnswer(standard30, locked(), { ...scoreInput, correct: false }))).toBe(0)
+    for (const pngWinRate of [0, 1]) {
+      expect(points(settleAnswer(standard30, locked(), { ...scoreInput, pngWinRate }))).toBe(0)
     }
   })
 })

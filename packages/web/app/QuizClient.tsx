@@ -1,13 +1,16 @@
 'use client'
 
-import type {
-  Answer,
-  AnswerResult,
-  ProfileResult,
-  QuestionResponse,
-  QuestionView,
-  SessionStateResponse,
-  VerificationView,
+import {
+  type Answer,
+  type AnswerResult,
+  type ColorRange,
+  findMode,
+  type HintConfig,
+  type ProfileResult,
+  type QuestionResponse,
+  type QuestionView,
+  type SessionStateResponse,
+  type VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
@@ -80,6 +83,27 @@ function ScaleNote({ naturalWidth }: { naturalWidth: number }) {
       表示は約 {scale.toFixed(2)}x に縮小されています。細部（ノイズ・輪郭）は拡大で確認できます。
     </p>
   )
+}
+
+/**
+ * ヒントを開示する前に出す警告文（prd/06 §7.5）。**2 度押しの 1 度目**で表示する。
+ *
+ * ⚠ ボタンのラベルには減点を書かない。「（減点なし）」の括弧書きは
+ * 「ヒントを見ても減点されない」と読めてしまう（2026-08-20 のフィードバック）。
+ * 🔒 減点率はモード定義（`quiz-core` の `HintConfig`）から算出する。UI 側に 50 を書かない。
+ */
+function hintWarning(hint: HintConfig): string {
+  if (hint.penaltyRate <= 0) {
+    return '練習モードなので減点はありません。もう一度押すと表示します'
+  }
+  return `ヒント（色数表示）を見ると得点が −${Math.round(hint.penaltyRate * 100)}% になります。もう一度押すと表示します`
+}
+
+/** レンジの表示（prd/06 §7.1 の表と同じ含意で書く） */
+function colorRangeLabel(range: ColorRange): { value: string; meaning: string } {
+  return range === 'le256'
+    ? { value: '256 色以下', meaning: '可逆パレット化が届く範囲' }
+    : { value: '256 色超', meaning: '平坦に見えても画素レベルのノイズがありうる範囲' }
 }
 
 /**
@@ -307,6 +331,23 @@ export function QuizClient({
   const submittingRef = useRef(false)
   const [score, setScore] = useState(0)
   const [zoom, setZoom] = useState<ZoomRequest | null>(null)
+  // モード ID（prd/06 §2）。ヒント設定（減点率）の参照に使う。値はサーバの応答からしか入れない
+  const [mode, setMode] = useState<string | null>(null)
+  /**
+   * 色数ヒント（prd/06 §7）。**支払い済み**のレンジだけが入る——値の出所は
+   * POST /hint の応答か、出題応答の `hint`（リロード復元）のみ。null = 未使用。
+   */
+  const [hint, setHint] = useState<ColorRange | null>(null)
+  /**
+   * 2 度押しの 1 度目を踏んだ状態（prd/06 §7.5）。true の間だけ警告文を出し、
+   * もう一度押されたら開示する。**誤タップ一発では開示しない**ための唯一の関門。
+   */
+  const [hintArmed, setHintArmed] = useState(false)
+  const [hintBusy, setHintBusy] = useState(false)
+  const [hintError, setHintError] = useState<string | null>(null)
+  // 開示直後にバッジへフォーカスを移す（支援技術に開示を伝える）。復元時は動かさない
+  const hintJustRevealedRef = useRef(false)
+  const hintBadgeRef = useRef<HTMLParagraphElement>(null)
   // 回答送信の失敗は出題画面の中に出す（画面ごと error に切り替えると再試行の文脈が失われる）
   const [submitError, setSubmitError] = useState<string | null>(null)
   /**
@@ -345,6 +386,9 @@ export function QuizClient({
     setPhase({ kind: 'loading' })
     setSubmitError(null)
     setPendingAnswer(null)
+    setHint(null)
+    setHintArmed(false)
+    setHintError(null)
     prefetchRef.current = null
     try {
       const response = await fetch(`/api/session/${sessionId}/question`)
@@ -362,10 +406,13 @@ export function QuizClient({
       }
       const body = await response.json()
       contextRef.current?.({ mode: body.mode as string, profileId: body.profileId as string })
+      setMode(body.mode as string)
       if (body.status === 'finished') {
         setPhase({ kind: 'finished' })
         return
       }
+      // 支払い済みのヒントの復元（prd/06 §7.3）。未使用なら null が来る
+      setHint((body.hint as ColorRange | null) ?? null)
       setPhase({ kind: 'question', question: body.question as QuestionView })
     } catch {
       // ネットワーク断。セッションはサーバに残っているので、破棄せず再試行に誘導する
@@ -406,6 +453,7 @@ export function QuizClient({
       }
       const state = (await response.json()) as SessionStateResponse
       contextRef.current?.({ mode: state.mode, profileId: state.profileId })
+      setMode(state.mode)
       setScore(state.score)
       if (state.lastQuestion && state.lastResult) {
         setLastOutcome({ question: state.lastQuestion, result: state.lastResult })
@@ -461,11 +509,16 @@ export function QuizClient({
       if (body) {
         setSubmitError(null)
         setPendingAnswer(null)
+        setHintArmed(false)
+        setHintError(null)
         contextRef.current?.({ mode: body.mode, profileId: body.profileId })
+        setMode(body.mode)
         if (body.status === 'finished') {
+          setHint(null)
           setPhase({ kind: 'finished' })
           return
         }
+        setHint(body.hint ?? null)
         setPhase({ kind: 'question', question: body.question })
         return
       }
@@ -572,6 +625,56 @@ export function QuizClient({
   }
 
   /**
+   * 色数ヒントの開示要求（prd/06 §7.3）。**同じボタンの 2 度目の押下**からだけ呼ばれる
+   * ——1 度目は警告を出すだけで、誤タップ一発では開示されない（prd/06 §7.5）。
+   * 🔒 サーバが記録してから返す。この POST は冪等（再試行しても二重減点にならない）。
+   */
+  async function revealHint(question: QuestionView) {
+    if (hintBusy) return
+    setHintBusy(true)
+    setHintError(null)
+    try {
+      const response = await fetch(`/api/session/${sessionId}/hint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questionId: question.questionId }),
+      })
+      if (response.status === 403) {
+        setHintArmed(false)
+        setPhase({ kind: 'error', message: EXPIRED_MESSAGE, recoverable: false })
+        return
+      }
+      if (response.status === 409) {
+        // 手元とサーバの進行がずれている（別タブで回答した等）。状態を取り直して追随する
+        setHintArmed(false)
+        await bootstrap()
+        return
+      }
+      if (!response.ok) {
+        setHintError(`ヒントを取得できませんでした（${response.status}）。もう一度お試しください。`)
+        return
+      }
+      const body = (await response.json()) as { colorRange: ColorRange }
+      hintJustRevealedRef.current = true
+      setHint(body.colorRange)
+      setHintArmed(false)
+    } catch {
+      // 冪等な POST なので、そのまま押し直してよい（支払い済みなら保存済みレンジが返る）
+      setHintError('通信に失敗しました。もう一度お試しください。')
+    } finally {
+      setHintBusy(false)
+    }
+  }
+
+  // 開示の瞬間だけバッジへフォーカスを移す（リロード復元では動かさない）
+  useEffect(() => {
+    if (hint !== null && hintJustRevealedRef.current) {
+      hintJustRevealedRef.current = false
+      hintBadgeRef.current?.focus()
+    }
+  }, [hint])
+
+  /**
    * スクリーンリーダーへの通知（aria-live）。エラー・完走を読み上げる。
    * ⚠ **正誤は含めない**。判定の行へのフォーカス移動が読み上げを担うので、両方に載せると
    * 30 問すべてで二重読み上げになる（OCL-4A9098D7）。
@@ -668,6 +771,19 @@ export function QuizClient({
   }
 
   const { question } = phase
+  // ヒントはモード定義のオプション（prd/06 §7.4）。無いモードでは UI ごと出さない
+  const hintConfig = mode ? (findMode(mode)?.hint ?? null) : null
+  /**
+   * ヒントボタンの下に出す 1 行（prd/06 §7.5）。live region は常設し、中身だけ差し替える
+   * ——後から live region ごと差し込むと読み上げが起きない環境がある。
+   * エラーを優先する（再試行の案内が警告に隠れない）。
+   */
+  let hintNotice: { text: string; tone: string } | null = null
+  if (hintError) {
+    hintNotice = { text: hintError, tone: 'text-sm text-wrong' }
+  } else if (hintArmed && hintConfig) {
+    hintNotice = { text: hintWarning(hintConfig), tone: 'text-caution text-xs' }
+  }
 
   return (
     // flex-1 と下の mt-auto で、内容が短いときも 2 択ボタンが画面下端に来る
@@ -740,6 +856,58 @@ export function QuizClient({
             />
           </div>
           <ScaleNote naturalWidth={question.width} />
+          {/* 色数ヒント（prd/06 §7.5）。sticky な 2 択ボタンとは離れた情報欄に置く。
+              開示は**同じボタンの 2 度押し**——1 度目は警告を出すだけで、誤タップ一発では開示されない */}
+          {hintConfig ? (
+            <div className="px-4 pt-3">
+              {hint === null ? (
+                <div>
+                  <button
+                    type="button"
+                    disabled={hintBusy}
+                    // 警告が出ている間だけ結び付ける（読み上げで「押すと何が起きるか」が届く）
+                    aria-describedby={hintArmed ? 'hint-notice' : undefined}
+                    onClick={() => {
+                      setHintError(null)
+                      // 1 度目は警告を出すだけ。2 度目で初めてサーバへ要求する
+                      if (!hintArmed) {
+                        setHintArmed(true)
+                        return
+                      }
+                      void revealHint(question)
+                    }}
+                    className={`rounded border px-4 py-2 text-sm hover:bg-sunken disabled:opacity-50 ${
+                      hintArmed
+                        ? 'border-caution text-caution'
+                        : 'border-line-strong text-ink-muted'
+                    }`}
+                  >
+                    ヒントを見る
+                  </button>
+                  {/* 🔒 警告は live region に出す（読み上げ環境でも 1 度目の押下で警告が届く） */}
+                  <p id="hint-notice" aria-live="polite">
+                    {hintNotice ? (
+                      <span className={`mt-2 block ${hintNotice.tone}`}>{hintNotice.text}</span>
+                    ) : null}
+                  </p>
+                </div>
+              ) : (
+                <p
+                  ref={hintBadgeRef}
+                  tabIndex={-1}
+                  className="rounded border border-line bg-sunken px-3 py-2 text-sm"
+                >
+                  色数ヒント: <strong>{colorRangeLabel(hint).value}</strong>
+                  <span className="text-ink-muted">（{colorRangeLabel(hint).meaning}）</span>
+                  {hintConfig.penaltyRate > 0 ? (
+                    <span className="ml-2 text-caution text-xs">
+                      得点 −{Math.round(hintConfig.penaltyRate * 100)}% 適用中
+                    </span>
+                  ) : null}
+                </p>
+              )}
+            </div>
+          ) : null}
         </ImageColumn>
       ) : null}
 
@@ -749,6 +917,13 @@ export function QuizClient({
           <Narrow>
             {/* 送信の失敗はここに出す。ボタンは生きたままなので、押し直せばそのまま再送になる */}
             {submitError ? <p className="mb-2 text-sm text-wrong">{submitError}</p> : null}
+            {/* 減点を忘れたまま採点されて驚かせない（prd/06 §7.5） */}
+            {hint !== null && hintConfig && hintConfig.penaltyRate > 0 ? (
+              <p className="mb-2 text-caution text-xs">
+                ヒント使用中: この問題の得点は −{Math.round(hintConfig.penaltyRate * 100)}%
+                で計算されます
+              </p>
+            ) : null}
             <div className="flex gap-3">
               {/* 応答不明の間は、送った側だけを再送可能にする（pendingAnswer の説明を参照） */}
               <button
@@ -878,6 +1053,17 @@ function ResultPanel({
         <p className="text-ink-muted text-sm">
           サイズ比 log2(PNG/JPEG) = {result.log2Ratio.toFixed(2)}
           {result.explanation ? ` — ${result.explanation}` : ''}
+        </p>
+        {/* 回答後は色数の実数を開示する（prd/04 §4。ヒントの答え合わせ）。
+            ⚠ 257 はキャップ値なので「256 色超」と表示する（prd/03 §3） */}
+        <p className="mt-1 text-ink-muted text-sm">
+          この画像の色数:{' '}
+          <strong>
+            {result.colorCount > 256
+              ? '256 色超'
+              : `${result.colorCount.toLocaleString('ja-JP')} 色`}
+          </strong>
+          {result.hintUsed ? '（色数ヒントを使用 — 得点は減点適用後）' : ''}
         </p>
       </Narrow>
 

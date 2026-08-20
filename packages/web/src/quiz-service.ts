@@ -13,7 +13,10 @@ import {
   type Answer,
   type AnswerResult,
   CHROMA_SUBSAMPLINGS,
+  type ColorRange,
   classifyTiming,
+  colorRange,
+  decideHint,
   ENCODE_PROFILES,
   findMode,
   JPEG_QUALITIES,
@@ -21,6 +24,7 @@ import {
   type ProfileResult,
   type QuestionView,
   type SessionStateResponse,
+  settleAnswer,
   standard30,
   type VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
@@ -35,13 +39,19 @@ import type { SessionRow } from './session.ts'
  * 正解・両形式のバイト数・png/jpeg の URL・難易度の数値は、回答を受け取るまで一切送らない。
  */
 
+/** 出題ペイロード。`hint` は**支払い済み**の色数レンジの再表示（null = 未使用。prd/06 §7.3） */
+export interface ServedQuestion {
+  question: QuestionView
+  hint: ColorRange | null
+}
+
 /**
  * 次の問題を選んで `session_question` に記録する。
  *
  * **出題選択は `quiz-core` のモードに委ねる**（prd/02 §4-1）。
  * ここは「DB から候補を集めて、選ばれたものを記録する」だけに留める。
  */
-export async function serveNextQuestion(row: SessionRow): Promise<QuestionView | null> {
+export async function serveNextQuestion(row: SessionRow): Promise<ServedQuestion | null> {
   const database = getDatabase()
 
   // 出題済みなら同じ問題を返す（リロードで問題が変わらないように）
@@ -59,7 +69,11 @@ export async function serveNextQuestion(row: SessionRow): Promise<QuestionView |
   const current = served[0]
   if (current) {
     if (current.answeredAt) return null
-    return await toQuestionView(current.questionId, row.currentIndex, row.questionCount)
+    const view = await toQuestionView(current.questionId, row.currentIndex, row.questionCount)
+    if (!view) return null
+    // 🔒 支払い済み（`hint_used_at` 非 null）のときだけレンジを載せる。無償では出さない（prd/04 §3.6）
+    const hint = current.hintUsedAt ? await colorRangeFor(current.questionId) : null
+    return { question: view, hint }
   }
 
   if (row.currentIndex >= row.questionCount) return null
@@ -105,7 +119,94 @@ export async function serveNextQuestion(row: SessionRow): Promise<QuestionView |
     difficultyAtServe: picked.difficulty,
   })
 
-  return await toQuestionView(picked.questionId, row.currentIndex, row.questionCount)
+  const view = await toQuestionView(picked.questionId, row.currentIndex, row.questionCount)
+  if (!view) return null
+  return { question: view, hint: null }
+}
+
+/**
+ * `question.color_count` を 2 段階レンジに落とす（prd/06 §7.1）。
+ * 🔒 実行時に数えない——パイプラインの事前実測（prd/05 §3 ステップ 4）を読むだけ（原則 4）。
+ */
+async function colorRangeFor(questionId: string): Promise<ColorRange> {
+  const rows = await getDatabase()
+    .select({ colorCount: question.colorCount })
+    .from(question)
+    .where(eq(question.id, questionId))
+    .limit(1)
+  const count = rows[0]?.colorCount
+  if (count === undefined) throw new Error(`問題が見つからない: ${questionId}`)
+  return colorRange(count)
+}
+
+export type HintOutcome =
+  | { status: 'ok'; colorRange: ColorRange }
+  | { status: 'not-allowed' }
+  | { status: 'not-current' }
+  | { status: 'already-answered' }
+
+/**
+ * 色数ヒントの開示（prd/06 §7.3）。
+ *
+ * 🔒 **永続化が開示に先行する。** `hint_used_at` を書けた者だけがレンジを受け取る。
+ * 開示した時点で減点が確定し、以後の回答内容・正誤に関係しない（prd/04 §3.6 の条件 2）。
+ * 冪等: 支払い済みの再要求には保存済みのレンジを返す（二重減点しない）。
+ */
+export async function requestHint(row: SessionRow, questionId: string): Promise<HintOutcome> {
+  const database = getDatabase()
+  const mode = findMode(row.mode) ?? standard30
+
+  const servedRows = await database
+    .select()
+    .from(sessionQuestion)
+    .where(
+      and(
+        eq(sessionQuestion.sessionId, row.id),
+        eq(sessionQuestion.questionIndex, row.currentIndex),
+      ),
+    )
+    .limit(1)
+  const served = servedRows[0] ?? null
+
+  const decision = decideHint(mode.hint, served, questionId)
+  if (decision === 'reject-not-allowed') return { status: 'not-allowed' }
+  if (decision === 'reject-not-current') return { status: 'not-current' }
+  if (decision === 'reject-answered') return { status: 'already-answered' }
+  if (decision === 'replay') return { status: 'ok', colorRange: await colorRangeFor(questionId) }
+
+  // 初回開示。並行要求や回答との競合に備え、`hint_used_at IS NULL AND answered_at IS NULL` を
+  // 条件にした UPDATE で 1 件更新できた者だけが「開示した」ことになる（submitAnswer と同じ形）
+  const [result] = await database
+    .update(sessionQuestion)
+    .set({ hintUsedAt: new Date() })
+    .where(
+      and(
+        eq(sessionQuestion.sessionId, row.id),
+        eq(sessionQuestion.questionIndex, row.currentIndex),
+        isNull(sessionQuestion.hintUsedAt),
+        isNull(sessionQuestion.answeredAt),
+      ),
+    )
+
+  if (result.affectedRows !== 1) {
+    // 競合に負けた側。行を読み直して同じ規則で判定し直す（冪等）
+    const settledRows = await database
+      .select()
+      .from(sessionQuestion)
+      .where(
+        and(
+          eq(sessionQuestion.sessionId, row.id),
+          eq(sessionQuestion.questionIndex, row.currentIndex),
+        ),
+      )
+      .limit(1)
+    const retry = decideHint(mode.hint, settledRows[0] ?? null, questionId)
+    if (retry === 'replay') return { status: 'ok', colorRange: await colorRangeFor(questionId) }
+    if (retry === 'reject-answered') return { status: 'already-answered' }
+    return { status: 'not-current' }
+  }
+
+  return { status: 'ok', colorRange: await colorRangeFor(questionId) }
 }
 
 async function toQuestionView(
@@ -170,6 +271,7 @@ export async function sessionState(row: SessionRow): Promise<SessionStateRespons
         chosen: prev.answer,
         correct: prev.isCorrect ?? encoding.answer === prev.answer,
         awardedPoints: prev.awardedPoints ?? 0,
+        hintUsed: prev.hintUsedAt !== null,
         hasNext: row.currentIndex < row.questionCount,
       })
     }
@@ -241,6 +343,7 @@ export async function submitAnswer(
         chosen,
         correct: served.isCorrect ?? encoding.answer === chosen,
         awardedPoints: served.awardedPoints ?? 0,
+        hintUsed: served.hintUsedAt !== null,
         // 最初の受付で進行は確定済み。この行は row.currentIndex の位置なので、次は +1
         hasNext: row.currentIndex + 1 < row.questionCount,
       }),
@@ -268,19 +371,6 @@ export async function submitAnswer(
   const pngWinRate = profileRows[0]?.pngWinRate ?? 0
 
   const mode = findMode(row.mode) ?? standard30
-  const awardedPoints =
-    correct && pngWinRate > 0 && pngWinRate < 1
-      ? mode.score({
-          correct,
-          answer: encoding.answer,
-          // 🔒 **出題時点の難易度**を使う（prd/03 §7）。問題データが再生成されても
-          // 同じ出題に対する得点が再現できるようにする
-          difficulty: served.difficultyAtServe,
-          pngWinRate,
-        })
-      : // プールが片方に寄りきっていると -log2(0) が発散する。
-        // その条件は出題対象から外してあるが、保険として 0 点にする（例外にはしない）
-        0
   const nextIndex = row.currentIndex + 1
   const streak = correct ? row.streak + 1 : 0
 
@@ -291,8 +381,42 @@ export async function submitAnswer(
    * すべてのリクエストが「未回答」を読んで通り、`score` と `correct_count` が二重に積まれる。
    * **`answered_at IS NULL` を条件にした UPDATE で 1 件更新できた者だけ**が
    * セッション集計に進む。回答行とセッション行は同じトランザクションで確定させる。
+   *
+   * 🔒 **ヒントの確認と得点の確定も同じトランザクションで直列化する**（OCL-FC970B81）。
+   * 行ロックを取ってから `hint_used_at` を読み直す——ロックの前に読んだ値で採点すると、
+   * その後に commit された `/hint` の減点をすり抜けて満額が保存され、
+   * 「ヒントを見ながら 50% 減点を回避する」並行送信が成立してしまう（prd/06 §7.3）。
    */
   const accepted = await database.transaction(async (tx) => {
+    const lockedRows = await tx
+      .select({
+        answeredAt: sessionQuestion.answeredAt,
+        hintUsedAt: sessionQuestion.hintUsedAt,
+      })
+      .from(sessionQuestion)
+      .where(
+        and(
+          eq(sessionQuestion.sessionId, row.id),
+          eq(sessionQuestion.questionIndex, row.currentIndex),
+        ),
+      )
+      .limit(1)
+      // ⚠ ロック読み（`FOR UPDATE`）は**最新の commit 済み**を読む。ここが直列化点で、
+      // 並行の `/hint` はこのトランザクションが終わるまで待たされる（先勝ちが決まる）
+      .for('update')
+    const locked = lockedRows[0]
+    if (!locked) return null
+
+    const outcome = settleAnswer(mode, locked, {
+      correct,
+      answer: encoding.answer,
+      // 🔒 **出題時点の難易度**を使う（prd/03 §7）。問題データが再生成されても
+      // 同じ出題に対する得点が再現できるようにする
+      difficulty: served.difficultyAtServe,
+      pngWinRate,
+    })
+    if (outcome.status === 'already-answered') return null
+
     const [result] = await tx
       .update(sessionQuestion)
       .set({
@@ -300,7 +424,7 @@ export async function submitAnswer(
         answer: chosen,
         isCorrect: correct,
         elapsedMs,
-        awardedPoints,
+        awardedPoints: outcome.awardedPoints,
       })
       .where(
         and(
@@ -310,7 +434,7 @@ export async function submitAnswer(
         ),
       )
 
-    if (result.affectedRows !== 1) return false
+    if (result.affectedRows !== 1) return null
 
     await tx
       .update(session)
@@ -319,14 +443,14 @@ export async function submitAnswer(
         correctCount: sql`${session.correctCount} + ${correct ? 1 : 0}`,
         streak,
         maxStreak: sql`GREATEST(${session.maxStreak}, ${streak})`,
-        score: sql`${session.score} + ${awardedPoints}`,
+        score: sql`${session.score} + ${outcome.awardedPoints}`,
         ...(nextIndex >= row.questionCount
           ? { status: 'finished' as const, finishedAt: new Date() }
           : {}),
       })
       .where(eq(session.id, row.id))
 
-    return true
+    return outcome
   })
 
   if (!accepted) {
@@ -349,6 +473,7 @@ export async function submitAnswer(
           chosen,
           correct: settled.isCorrect ?? encoding.answer === chosen,
           awardedPoints: settled.awardedPoints ?? 0,
+          hintUsed: settled.hintUsedAt !== null,
           hasNext: nextIndex < row.questionCount,
         }),
       }
@@ -361,7 +486,8 @@ export async function submitAnswer(
     result: await discloseResult(row, questionId, encoding, {
       chosen,
       correct,
-      awardedPoints,
+      awardedPoints: accepted.awardedPoints,
+      hintUsed: accepted.hintUsed,
       hasNext: nextIndex < row.questionCount,
     }),
   }
@@ -404,6 +530,7 @@ async function replayAnsweredQuestion(
     chosen,
     correct: prev.isCorrect ?? encoding.answer === chosen,
     awardedPoints: prev.awardedPoints ?? 0,
+    hintUsed: prev.hintUsedAt !== null,
     // 進行は最初の受付時に確定済み。currentIndex は既に次の問題を指している
     hasNext: row.currentIndex < row.questionCount,
   })
@@ -431,7 +558,13 @@ async function discloseResult(
   row: SessionRow,
   questionId: string,
   encoding: typeof questionEncoding.$inferSelect,
-  input: { chosen: Answer; correct: boolean; awardedPoints: number; hasNext: boolean },
+  input: {
+    chosen: Answer
+    correct: boolean
+    awardedPoints: number
+    hintUsed: boolean
+    hasNext: boolean
+  },
 ): Promise<AnswerResult> {
   const database = getDatabase()
 
@@ -537,6 +670,8 @@ async function discloseResult(
     .select({
       explanation: question.explanation,
       source: question.source,
+      // 回答後は実数を開示する（prd/04 §4。ヒントの答え合わせ）。⚠ 257 = 256 超（prd/03 §3）
+      colorCount: question.colorCount,
       displayKey: questionDisplayAsset.objectKey,
     })
     .from(question)
@@ -556,6 +691,8 @@ async function discloseResult(
     displayUrl: assetUrl(detail?.displayKey ?? ''),
     log2Ratio: encoding.log2Ratio,
     awardedPoints: input.awardedPoints,
+    colorCount: detail?.colorCount ?? 257,
+    hintUsed: input.hintUsed,
     explanation: detail?.explanation ?? null,
     source: (detail?.source ?? {}) as Record<string, unknown>,
     profileResults,

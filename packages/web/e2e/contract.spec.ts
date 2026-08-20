@@ -39,8 +39,10 @@ test('回答前のレスポンスは、許可されたキーだけを含む', as
   expect(response.ok()).toBe(true)
   const body = (await response.json()) as Record<string, unknown>
 
-  // 🔒 キー集合の**完全一致**。許可リストに無いキーは、たとえ値が無害でも通さない
-  expect(Object.keys(body).sort()).toEqual(['mode', 'profileId', 'question', 'status'])
+  // 🔒 キー集合の**完全一致**。許可リストに無いキーは、たとえ値が無害でも通さない。
+  // `hint` は色数ヒント（prd/06 §7）の**支払い済みレンジの再表示**用で、未払いなら必ず null
+  expect(Object.keys(body).sort()).toEqual(['hint', 'mode', 'profileId', 'question', 'status'])
+  expect(body['hint']).toBeNull()
   const question = body['question'] as Record<string, unknown>
   expect(Object.keys(question).sort()).toEqual([
     'category',
@@ -94,4 +96,54 @@ test('セッション状態レスポンスは、未回答の問題の情報を�
   expect(after['currentServed']).toBe(true)
   expect(after['lastQuestion']).toBeNull()
   expect(after['lastResult']).toBeNull()
+})
+
+test('色数ヒントは記録してからレンジだけを返し、再要求に冪等（prd/06 §7.3）', async ({
+  request,
+}) => {
+  const created = await request.post('/api/session', { data: {} })
+  const session = (await created.json()) as Record<string, unknown>
+  const sessionId = String(session['sessionId'])
+
+  const questionBody = (await (
+    await request.get(`/api/session/${sessionId}/question`)
+  ).json()) as Record<string, unknown>
+  const question = questionBody['question'] as Record<string, unknown>
+  const questionId = String(question['questionId'])
+
+  // 開示。🔒 返るのはレンジだけ（実数の color_count や他の属性は返らない）
+  const first = await request.post(`/api/session/${sessionId}/hint`, { data: { questionId } })
+  expect(first.ok()).toBe(true)
+  const firstBody = (await first.json()) as Record<string, unknown>
+  expect(Object.keys(firstBody).sort()).toEqual(['colorRange'])
+  expect(['le256', 'gt256']).toContain(firstBody['colorRange'])
+
+  // 冪等: 再要求は同じレンジ（二重減点しない。減点の検証はサーバ内部値なので単体テスト側）
+  const second = await request.post(`/api/session/${sessionId}/hint`, { data: { questionId } })
+  expect(second.ok()).toBe(true)
+  expect(((await second.json()) as Record<string, unknown>)['colorRange']).toBe(
+    firstBody['colorRange'],
+  )
+
+  // 支払い済みのヒントは出題レスポンスで復元される（prd/06 §7.3 のリロード復元）
+  const reloaded = (await (
+    await request.get(`/api/session/${sessionId}/question`)
+  ).json()) as Record<string, unknown>
+  expect(reloaded['hint']).toBe(firstBody['colorRange'])
+
+  // 最短回答時間（MIN_ANSWER_MS = 300ms）を下回ると 429 になる（prd/04 §5.2）
+  await new Promise((resolve) => setTimeout(resolve, 400))
+
+  // 回答すると開示側に色数の実数とヒント使用が載る（prd/04 §4）
+  const answered = await request.post(`/api/session/${sessionId}/answer`, {
+    data: { questionId, answer: 'png' },
+  })
+  expect(answered.ok()).toBe(true)
+  const result = (await answered.json()) as Record<string, unknown>
+  expect(result['hintUsed']).toBe(true)
+  expect(typeof result['colorCount']).toBe('number')
+
+  // 🔒 回答済みの行へのヒント要求は拒否される（prd/06 §7.3）
+  const late = await request.post(`/api/session/${sessionId}/hint`, { data: { questionId } })
+  expect(late.status()).toBe(409)
 })
