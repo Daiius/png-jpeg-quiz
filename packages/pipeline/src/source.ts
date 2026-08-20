@@ -36,6 +36,17 @@ export const sourceMetaSchema = z.object({
    * 出典・ライセンスと同じ扱いで、**宣言が無ければ素材を採用しない。**
    */
   is_ai_generated: z.boolean(),
+  /**
+   * 際どい問題として**加工して作った合成素材か**（prd/05 §4）。減色・ノイズ付与・再描画など。
+   *
+   * ⚠ **`is_ai_generated` と違い、省略は `false` として扱う。** 非対称なのは意図的で、
+   * 未宣言が意味するものが違う ── あちらは省略が「AI ではない」という**偽りの断定**になり
+   * 開示義務を落とすが、こちらは「加工していない」＝**入手したままの素材**という
+   * 事実そのもの。合成素材は必ずこの CLI やパイプライン側が明示的に `true` を書き出す。
+   * ⚠ **`derivation` の有無から推測しない。** 切り出し・背景合成のような
+   * 「素材を使える形にするだけ」の加工でも `derivation` は付く。
+   */
+  is_synthetic: z.boolean().default(false),
   derivation: z.record(z.string(), z.unknown()).optional(),
   note: z.string().optional(),
   caution: z.string().optional(),
