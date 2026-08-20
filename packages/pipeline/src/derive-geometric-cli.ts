@@ -1,10 +1,9 @@
 import { strict as assert } from 'node:assert'
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
-import sharp from 'sharp'
 import { binarize, quantize } from './derive.ts'
 import { assertKnownSource, CLEAN_META, QUANT_COLORS, QUANT_META } from './derive-geometric-meta.ts'
+import { encodeAssetPng, rasterizeSvg, sha256, writeAsset } from './derive-io.ts'
 import { countColors, flatRatio, type RawImage } from './metrics.ts'
 import { normalize } from './normalize.ts'
 
@@ -46,15 +45,6 @@ const CLEAN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="${EXPECTED.wid
   </g>
 </svg>`
 
-/** PNG 書き出し。⚠ `effort` を必ず明示する（省くと 4 倍になる。AGENTS.md / measurements §1） */
-async function encodePng(image: RawImage): Promise<Buffer> {
-  return sharp(Buffer.from(image.data), {
-    raw: { width: image.width, height: image.height, channels: 3 },
-  })
-    .png({ compressionLevel: 9, effort: 10 })
-    .toBuffer()
-}
-
 function whiteRatio(image: RawImage): number {
   const { data, width, height, channels } = image
   let white = 0
@@ -84,13 +74,6 @@ function lightRatio(image: RawImage): number {
   return light / (width * height)
 }
 
-async function writeAsset(outDir: string, name: string, png: Buffer, meta: unknown): Promise<void> {
-  await writeFile(path.join(outDir, `${name}.png`), png)
-  await writeFile(path.join(outDir, `${name}.meta.json`), `${JSON.stringify(meta, null, 2)}\n`)
-}
-
-const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
-
 async function main(argv: string[]): Promise<void> {
   // 既定パスはリポジトリルート基準（pnpm --filter は cwd をパッケージ側に変えるため、cwd に依存しない）
   const repoRoot = path.resolve(import.meta.dirname, '..', '..', '..')
@@ -113,25 +96,15 @@ async function main(argv: string[]): Promise<void> {
   assert.ok(quantColors <= QUANT_COLORS, `quantized colors ${quantColors} > ${QUANT_COLORS}`)
   assert.equal(quantized.width, EXPECTED.width)
   assert.equal(quantized.height, EXPECTED.height)
-  const quantPng = await encodePng(quantized)
+  const quantPng = await encodeAssetPng(quantized)
   await writeAsset(outDir, 'ai-geometric-16', quantPng, QUANT_META)
 
   // --- 2. クリーン 2 色版（SVG 再描画） ----------------------------------
-  const rendered = await sharp(Buffer.from(CLEAN_SVG))
-    .toColorspace('srgb')
-    .flatten({ background: '#ffffff' })
-    .removeAlpha()
-    .raw({ depth: 'uchar' })
-    .toBuffer({ resolveWithObject: true })
-  assert.equal(rendered.info.width, EXPECTED.width, 'SVG raster width mismatch')
-  assert.equal(rendered.info.height, EXPECTED.height, 'SVG raster height mismatch')
+  const rendered = await rasterizeSvg(CLEAN_SVG)
+  assert.equal(rendered.width, EXPECTED.width, 'SVG raster width mismatch')
+  assert.equal(rendered.height, EXPECTED.height, 'SVG raster height mismatch')
 
-  const clean = binarize({
-    data: rendered.data,
-    width: rendered.info.width,
-    height: rendered.info.height,
-    channels: rendered.info.channels,
-  })
+  const clean = binarize(rendered)
 
   // 検証: ちょうど 2 色（純黒 / 純白）で、背景は純白ベタ
   const cleanColors = countColors(clean)
@@ -145,7 +118,7 @@ async function main(argv: string[]): Promise<void> {
     Math.abs(cleanLight - originalLight) < 0.02,
     `light ratio drifted: original=${originalLight.toFixed(4)} clean=${cleanLight.toFixed(4)}`,
   )
-  const cleanPng = await encodePng(clean)
+  const cleanPng = await encodeAssetPng(clean)
   await writeAsset(outDir, 'ai-geometric-clean', cleanPng, CLEAN_META)
 
   // --- 報告 --------------------------------------------------------------

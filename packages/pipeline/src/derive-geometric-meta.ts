@@ -1,3 +1,4 @@
+import { assertKnownSource as assertSourceHash } from './derive-io.ts'
 import type { SourceMeta } from './source.ts'
 
 /**
@@ -22,15 +23,7 @@ export const SOURCE_SHA256 = 'b4a3422303c9026b3cf57b7a2ec3c1017a857c304688076216
 
 /** 入力が既知の原本かを確かめる。**一致しなければ派生素材を作らせない。** */
 export function assertKnownSource(sha256: string, sourcePath: string): void {
-  if (sha256 === SOURCE_SHA256) return
-  throw new Error(
-    [
-      `入力が既知の ai-geometric.png ではないので中断する: ${sourcePath}`,
-      `  expected sha256=${SOURCE_SHA256}`,
-      `  actual   sha256=${sha256}`,
-      '  この CLI は ai-geometric.png 専用で、出典・ライセンスを固定で書き出す（prd/05 §1）。',
-    ].join('\n'),
-  )
+  assertSourceHash(sha256, SOURCE_SHA256, sourcePath, 'ai-geometric.png')
 }
 
 export const QUANT_META = {
