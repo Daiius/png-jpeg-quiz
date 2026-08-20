@@ -8,10 +8,10 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "docker compose watch",
+    "dev": "docker compose up --watch --build",
     "dev:logs": "docker compose logs -f",
     "dev:down": "docker compose down",
-    "dev:remote": "docker compose --env-file .env --env-file .env.remote watch",
+    "dev:remote": "docker compose --env-file .env --env-file .env.remote up --watch --build",
     "dev:remote:logs": "docker compose --env-file .env --env-file .env.remote logs -f",
     "dev:remote:down": "docker compose --env-file .env --env-file .env.remote down",
     "typecheck": "pnpm -r --no-bail typecheck",
