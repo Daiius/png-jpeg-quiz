@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { HINT_PENALTY_RATE } from './hint.ts'
 import {
   classifyTiming,
   defaultModeForPool,
@@ -141,6 +142,26 @@ describe('defaultModeForPool', () => {
       const mode = defaultModeForPool(poolSize)
       expect(mode.questionCount(poolSize)).toBeLessThanOrEqual(poolSize)
     }
+  })
+})
+
+describe('モードの色数ヒント設定（prd/06 §7.4）', () => {
+  const base = { correct: true, answer: 'png', difficulty: 0.5, pngWinRate: 0.48 } as const
+
+  it('standard-30 は一律 ×0.5 の減点つきで許可する', () => {
+    expect(standard30.hint).toEqual({ kind: 'color-count-range', penaltyRate: HINT_PENALTY_RATE })
+    const full = standard30.score(base)
+    expect(standard30.score({ ...base, hintUsed: true })).toBeCloseTo(full * 0.5, 10)
+  })
+
+  it('practice は減点なしで許可する（ランキングに載らない）', () => {
+    expect(practice.hint).toEqual({ kind: 'color-count-range', penaltyRate: 0 })
+    expect(practice.score({ ...base, hintUsed: true })).toBe(practice.score(base))
+  })
+
+  it('ヒント未使用の得点はこれまでと変わらない', () => {
+    expect(standard30.score(base)).toBe(practice.score(base))
+    expect(standard30.score(base)).toBeGreaterThan(0)
   })
 })
 

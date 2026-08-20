@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { HINT_PENALTY_RATE, type HintConfig } from './hint.ts'
 import {
   answerProbability,
   difficultyWeight,
@@ -60,6 +61,51 @@ describe('scoreQuestion', () => {
     expect(
       scoreQuestion({ correct: true, answer: 'png', difficulty: 0, pngWinRate: 0.48 }),
     ).toBeGreaterThan(0)
+  })
+})
+
+describe('scoreQuestion（色数ヒント。prd/06 §7.2）', () => {
+  const standardHint: HintConfig = { kind: 'color-count-range', penaltyRate: HINT_PENALTY_RATE }
+  const base = { correct: true, answer: 'png', difficulty: 0.5, pngWinRate: 0.48 } as const
+
+  it('ヒント使用で ×0.5（全問一律の定率）', () => {
+    const full = scoreQuestion(base, standardHint)
+    const hinted = scoreQuestion({ ...base, hintUsed: true }, standardHint)
+    expect(hinted).toBeCloseTo(full * (1 - HINT_PENALTY_RATE), 10)
+  })
+
+  it('「見て正解」＞「見ずに不正解」（性質 1。対価を払って当てた人が失敗より下にならない）', () => {
+    expect(scoreQuestion({ ...base, hintUsed: true }, standardHint)).toBeGreaterThan(0)
+  })
+
+  it('ヒントが答えを確定させても、期待値は当てずっぽうと同じ（性質 2）', () => {
+    // 確定ヒント: 正解率 1 × 減点後 0.5 S。当てずっぽう: 正解率 0.5 × 満額 S
+    const full = scoreQuestion(base, standardHint)
+    const certainWithHint = 1 * scoreQuestion({ ...base, hintUsed: true }, standardHint)
+    const coinFlip = 0.5 * full
+    expect(certainWithHint).toBeCloseTo(coinFlip, 10)
+  })
+
+  it('不正解はヒントの有無に関係なく 0 点', () => {
+    expect(scoreQuestion({ ...base, correct: false, hintUsed: true }, standardHint)).toBe(0)
+  })
+
+  it('ヒント未使用・設定なしでは満額のまま（後方互換）', () => {
+    const full = scoreQuestion(base)
+    expect(scoreQuestion({ ...base, hintUsed: false }, standardHint)).toBe(full)
+    expect(scoreQuestion({ ...base, hintUsed: true }, null)).toBe(full)
+  })
+
+  it('practice の減点率 0 では減点されない', () => {
+    const free: HintConfig = { kind: 'color-count-range', penaltyRate: 0 }
+    expect(scoreQuestion({ ...base, hintUsed: true }, free)).toBe(scoreQuestion(base))
+  })
+
+  it('減点率 1 以上・負を拒否する（1 だと「見て正解」＝「見ずに不正解」になる）', () => {
+    const all: HintConfig = { kind: 'color-count-range', penaltyRate: 1 }
+    expect(() => scoreQuestion({ ...base, hintUsed: true }, all)).toThrow(RangeError)
+    const negative: HintConfig = { kind: 'color-count-range', penaltyRate: -0.1 }
+    expect(() => scoreQuestion({ ...base, hintUsed: true }, negative)).toThrow(RangeError)
   })
 })
 

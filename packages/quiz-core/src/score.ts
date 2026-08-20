@@ -1,4 +1,5 @@
 import type { Answer } from './contract.ts'
+import type { HintConfig } from './hint.ts'
 
 /**
  * 得点（prd/06 §1・サプライザル方式）。
@@ -56,13 +57,27 @@ export interface ScoreInput {
   difficulty: number
   /** そのプロファイルのプールでの PNG 正解率 */
   pngWinRate: number
+  /** 色数ヒントを開示したか（prd/06 §7.2）。開示した時点で確定し、正誤に関係なく効く */
+  hintUsed?: boolean
 }
 
-/** 1 問分の得点。**不正解は 0 点**（prd/06 §1。⚠ 時間切れは無い。prd/04 §5.1）。 */
-export function scoreQuestion(input: ScoreInput): number {
+/**
+ * 1 問分の得点。**不正解は 0 点**（prd/06 §1。⚠ 時間切れは無い。prd/04 §5.1）。
+ *
+ * ヒント使用時は `× (1 - penaltyRate)`（prd/06 §7.2）。
+ * 🔒 減点率は**全問一律の定率**——問題ごとに変えると減点率そのものが
+ * 答えの方向を指す第二の漏洩経路になる（T7 の再帰。prd/04 §3.6）。
+ */
+export function scoreQuestion(input: ScoreInput, hint?: HintConfig | null): number {
+  if (hint && !(hint.penaltyRate >= 0 && hint.penaltyRate < 1)) {
+    // 1 を許すと「見て正解」＝「見ずに不正解」になり、使う理由が消える（prd/06 §7.2 性質 1）
+    throw new RangeError('penaltyRate は [0, 1) でなければならない')
+  }
   if (!input.correct) return 0
   const probability = answerProbability(input.pngWinRate, input.answer)
-  return difficultyWeight(input.difficulty) * surprisal(probability)
+  const base = difficultyWeight(input.difficulty) * surprisal(probability)
+  if (!input.hintUsed || !hint) return base
+  return base * (1 - hint.penaltyRate)
 }
 
 /**

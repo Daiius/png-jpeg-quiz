@@ -1,4 +1,5 @@
 import type { Answer } from './contract.ts'
+import { HINT_PENALTY_RATE, type HintConfig } from './hint.ts'
 import { type ScoreInput, scoreQuestion } from './score.ts'
 
 /**
@@ -31,6 +32,11 @@ export interface QuizMode {
   id: string
   /** 条件選択を許すか（prd/06 §2） */
   allowProfileChoice: boolean
+  /**
+   * 色数ヒント（prd/06 §7.4）。**null = このモードにヒントは無い**。
+   * ⚠ 連勝を競技基準にするモード（endless）には載せない——連勝数は減点できない量（prd/06 §7.2）。
+   */
+  hint: HintConfig | null
   /** プールの大きさから 1 セッションの問題数を決める */
   questionCount(poolSize: number): number
   /** 出題選択と終了条件（null で終了） */
@@ -114,15 +120,22 @@ function pickByCurve(state: ModeState, pool: readonly PoolEntry[]): PoolEntry | 
  * 100 人遊べば 10 人が満点になる）。30 問で 0.12%。**ランキングはこの前提に乗っている**ので、
  * プールが足りないときは**短くせず、そのプロファイルでの開始を断る**。
  */
+/** `standard-30` のヒント設定。減点は一律 ×0.5（prd/06 §7.2） */
+const standardHint: HintConfig = { kind: 'color-count-range', penaltyRate: HINT_PENALTY_RATE }
+
+/** `practice` のヒント設定。ランキングに載らないので減点なし（prd/06 §7.4） */
+const practiceHint: HintConfig = { kind: 'color-count-range', penaltyRate: 0 }
+
 export const standard30: QuizMode = {
   id: 'standard-30',
   allowProfileChoice: true,
+  hint: standardHint,
   questionCount(): number {
     return STANDARD_30_QUESTION_COUNT
   },
   pickNext: pickByCurve,
   score(input) {
-    return scoreQuestion(input)
+    return scoreQuestion(input, standardHint)
   },
 }
 
@@ -135,12 +148,13 @@ export const standard30: QuizMode = {
 export const practice: QuizMode = {
   id: 'practice',
   allowProfileChoice: true,
+  hint: practiceHint,
   questionCount(poolSize: number): number {
     return Math.max(1, Math.min(STANDARD_30_QUESTION_COUNT, poolSize))
   },
   pickNext: pickByCurve,
   score(input) {
-    return scoreQuestion(input)
+    return scoreQuestion(input, practiceHint)
   },
 }
 

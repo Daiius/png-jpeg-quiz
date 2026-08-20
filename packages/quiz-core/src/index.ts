@@ -10,10 +10,16 @@ export {
   type AnswerResult,
   answerResultSchema,
   answerSchema,
+  type ColorRange,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  colorRangeSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  type HintRequest,
+  type HintResponse,
+  hintRequestSchema,
+  hintResponseSchema,
   type ProfileResult,
   profileResultSchema,
   type QuestionCategory,
@@ -32,6 +38,15 @@ export {
   verificationViewSchema,
 } from './contract.ts'
 export { answerFor, log2Ratio, staticDifficulty } from './difficulty.ts'
+export {
+  COLOR_RANGE_BOUNDARY,
+  colorRange,
+  decideHint,
+  HINT_PENALTY_RATE,
+  type HintConfig,
+  type HintDecision,
+  type ServedForHint,
+} from './hint.ts'
 export {
   type AnswerTiming,
   classifyTiming,

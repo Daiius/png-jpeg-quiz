@@ -12,6 +12,13 @@ import { profileIdSchema } from './profile.ts'
 export const answerSchema = z.enum(['png', 'jpeg'])
 export type Answer = z.infer<typeof answerSchema>
 
+/**
+ * 色数ヒントのレンジ（prd/06 §7.1）。境界は 256 のみ。
+ * 🔒 実数の `color_count` は回答後まで出さない（prd/04 §3.6）。
+ */
+export const colorRangeSchema = z.enum(['le256', 'gt256'])
+export type ColorRange = z.infer<typeof colorRangeSchema>
+
 export const questionIdSchema = z.string().min(1).max(64)
 export const sessionIdSchema = z.string().min(1).max(64)
 
@@ -78,11 +85,35 @@ export const questionResponseSchema = z.union([
   z.object({
     status: z.literal('question'),
     question: questionViewSchema,
+    /**
+     * 支払い済みの色数ヒント（prd/06 §7.3）。**null = 未使用**。
+     * 🔒 値が入るのは `POST /hint` で減点が確定した後だけ——これは無償の漏洩ではなく、
+     * リロード復元のための**支払い済み開示の再表示**（prd/04 §3.6 の条件 1・2）。
+     */
+    hint: colorRangeSchema.nullable(),
     ...sessionContextShape,
   }),
   z.object({ status: z.literal('finished'), ...sessionContextShape }),
 ])
 export type QuestionResponse = z.infer<typeof questionResponseSchema>
+
+// --- POST /api/session/:id/hint ---
+
+/**
+ * 色数ヒントの要求（prd/06 §7.3 / prd/02 §4-2）。
+ * 🔒 サーバは `hint_used_at` を**永続化してから**レンジを返す（開示した時点で減点が確定）。
+ * 冪等: 同じ問題への再要求は保存済みのレンジを返す。回答済みの行への要求は拒否。
+ */
+export const hintRequestSchema = z.object({
+  questionId: questionIdSchema,
+})
+export type HintRequest = z.infer<typeof hintRequestSchema>
+
+/** 返すのはレンジだけ。🔒 実数・他の属性は返さない（prd/02 §4-2） */
+export const hintResponseSchema = z.object({
+  colorRange: colorRangeSchema,
+})
+export type HintResponse = z.infer<typeof hintResponseSchema>
 
 // --- POST /api/session/:id/answer ---
 
@@ -153,7 +184,15 @@ export const answerResultSchema = z.object({
   jpegUrl: z.url(),
   displayUrl: z.url(),
   log2Ratio: z.number(),
+  /** 実際に付与した得点。⚠ ヒント使用時は**減点適用後**の値（prd/06 §7.2） */
   awardedPoints: z.number(),
+  /**
+   * 実測の色数（prd/04 §4。ヒントの答え合わせ）。回答後なので実数を開示してよい。
+   * ⚠ **257 = 「256 色超」**（`question.color_count` のキャップ。prd/03 §3）。
+   */
+  colorCount: z.number().int().positive(),
+  /** この問題で色数ヒントを開示したか（prd/06 §7） */
+  hintUsed: z.boolean(),
   explanation: z.string().nullable(),
   source: z.record(z.string(), z.unknown()),
   /** 20 プロファイルすべての結果（prd/04 §4） */
