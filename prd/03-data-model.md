@@ -64,6 +64,9 @@ encode_profile ──< question_encoding >── question ──── question_
   いずれも「PNG が効く画像か」を直接示すので、**答えの方向が漏れる**（[04](./04-session-and-integrity.md) §3.5）。
   回答前に渡してよいのは **`display` の URL・寸法・`category`** だけ（[02](./02-architecture.md) §4-2）。
   `category`（写真 / イラスト …）は**画像を見れば分かる**ので、追加の手がかりにならない。
+  ⚠ **唯一の例外は色数ヒント**（[06](./06-ranking.md) §7）: プレイヤーが減点と引き換えに
+  明示要求したときだけ、`color_count` を **2 段階のレンジに落として**返す
+  （実数は回答後まで出さない。[04](./04-session-and-integrity.md) §3.6）。
 
 ## 4. `question_encoding` — 条件ごとの結果（問題 × プロファイル）
 
@@ -171,6 +174,7 @@ encode_profile ──< question_encoding >── question ──── question_
 | `elapsed_ms` | **bigint** \| null | `answered_at - served_at`（**クライアント申告値は使わない**）<br>⚠ **`int` では足りない。** 制限時間を廃止した（[04](./04-session-and-integrity.md) §5.1）ので上限が無く、符号付き `int` の 2,147,483,647ms（約 24.9 日）を超えうる |
 | `awarded_points` | real \| null | 実際に付与した得点 |
 | `difficulty_at_serve` | real | 出題時点の静的難易度（後で式を変えても再計算できるように） |
+| `hint_used_at` | timestamp \| null | **色数ヒントを開示した時刻**（[06](./06-ranking.md) §7）。null = 未使用 |
 
 - ⚠ **クライアントは正解画面の表示中に次問をプリフェッチする**ため、`elapsed_ms` には
   正解画面を読んでいた時間が乗る。1 問目に説明を読む時間が乗るのと同型で
@@ -180,6 +184,9 @@ encode_profile ──< question_encoding >── question ──── question_
 - 回答は 1 回だけ。`answer` が既に入っている行への再 POST は拒否する。
   ⚠ 例外は**同一回答の再送**で、採点・集計を再実行せずに保存済みの結果を返す
   （応答を失ったクライアントのリトライ用。[02](./02-architecture.md) §4-2）。
+- **ヒントは開示より先に記録する**: `hint_used_at` を書いてからレンジを返す。`answered_at` の
+  入った行へのヒント要求は拒否し、同じ行への再要求は保存済みレンジを返す（二重減点しない）。
+  `awarded_points` には**減点適用後**の値を入れる（[06](./06-ranking.md) §7.2）。
 - **インデックス**: `(question_id, profile_id)`（問題別集計）、`(answered_at)`（時系列）。
 
 ## 8. `question_stats` — 集計（分析と回答後表示のみ）
@@ -188,12 +195,15 @@ encode_profile ──< question_encoding >── question ──── question_
 |---|---|
 | `question_id` / `profile_id` | 複合 PK |
 | `shown` / `correct` | int |
+| `hint_used` | int |
 | `avg_elapsed_ms` | int |
 | `updated_at` | timestamp |
 
 - 🔒 **得点計算には使わない。**「みんなが間違える」＝「直感と逆が正解」が漏れるため
   （[04](./04-session-and-integrity.md) §3.5）。用途は**運営分析**と**回答後の表示**に限る。
 - `session_question` から再計算できる派生テーブル。バッチで更新する。
+- `hint_used` はヒントの使用数。使用率が極端に高い問題は「見た目から判断できない問題」の
+  シグナルとして、正答率と同じく**運営判断の材料**に限って使う（[06](./06-ranking.md) §6）。
 
 ## 9. `score_entry` — ランキング掲載
 

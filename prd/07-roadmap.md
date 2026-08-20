@@ -57,6 +57,8 @@
 
 - デイリーチャレンジ、結果共有ページ + OGP。
 - **別モード**: endless（連勝）/ confidence（確信度つき log score）。
+- **色数ヒント**（減点 50% と引き換えの明示開示。[06](./06-ranking.md) §7。
+  T7 例外の成立条件は [04](./04-session-and-integrity.md) §3.6）。
 - 「際どい問題」の合成（[05](./05-content-pipeline.md) §4）で問題数を増やす。
 - 運営分析の画面化（見たい指標が固まってから。[06](./06-ranking.md) §6）。
 - **Vite + Hono 版**（`quiz-core` / `database` をそのまま共有）。
