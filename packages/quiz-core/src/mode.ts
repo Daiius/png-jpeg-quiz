@@ -176,3 +176,46 @@ export const MODES: Readonly<Record<string, QuizMode>> = {
 export function findMode(id: string): QuizMode | undefined {
   return MODES[id]
 }
+
+/**
+ * 得点を確定する時点で読み直した、出題行の断面（prd/03 §7 の `session_question`）。
+ *
+ * 🔒 **行ロックを取った後に読んだ値**でなければならない（`settleAnswer` の説明を参照）。
+ */
+export interface LockedForSettle {
+  answeredAt: Date | null
+  hintUsedAt: Date | null
+}
+
+export type SettleOutcome =
+  /** 受け付ける。`awardedPoints` はヒントの減点まで含んだ確定値 */
+  | { status: 'award'; hintUsed: boolean; awardedPoints: number }
+  /** 並行の回答が先に確定していた。呼び出し側は保存済みの結果を冪等に返す */
+  | { status: 'already-answered' }
+
+/**
+ * 回答の確定（prd/06 §1 / §7.3）。**ヒントの有無を見てから得点を作る**のはここだけ。
+ *
+ * 🔒 **`locked` は行ロックを取った後に読み直した値を渡すこと。**
+ * ロックの前に読んだ `hint_used_at` で採点すると、その読み取りの後に commit された
+ * `/hint` の減点をすり抜けて満額が保存される（OCL-FC970B81）。
+ * ヒントと回答の**先勝ち**は、ロック内でこの関数に渡す断面だけで決まる:
+ * - `/hint` が先 → `hintUsedAt` が入っている → `× (1 - penaltyRate)`
+ * - 回答が先 → `/hint` 側が `answered_at` を見て拒否する（`decideHint` の `reject-answered`）
+ */
+export function settleAnswer(
+  mode: QuizMode,
+  locked: LockedForSettle,
+  input: Omit<ScoreInput, 'hintUsed'>,
+): SettleOutcome {
+  if (locked.answeredAt) return { status: 'already-answered' }
+  const hintUsed = locked.hintUsedAt !== null
+  // プールが片方に寄りきっていると -log2(0) が発散する。
+  // その条件は出題対象から外してあるが、保険として 0 点にする（例外にはしない）
+  const scorable = input.pngWinRate > 0 && input.pngWinRate < 1
+  return {
+    status: 'award',
+    hintUsed,
+    awardedPoints: scorable ? mode.score({ ...input, hintUsed }) : 0,
+  }
+}

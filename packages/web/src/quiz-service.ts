@@ -24,6 +24,7 @@ import {
   type ProfileResult,
   type QuestionView,
   type SessionStateResponse,
+  settleAnswer,
   standard30,
   type VerificationView,
 } from '@png-jpeg-quiz/quiz-core'
@@ -370,22 +371,6 @@ export async function submitAnswer(
   const pngWinRate = profileRows[0]?.pngWinRate ?? 0
 
   const mode = findMode(row.mode) ?? standard30
-  // ヒントは開示した時点で確定している（prd/06 §7.3）。減点はモード定義の一律定率（§7.2）
-  const hintUsed = served.hintUsedAt !== null
-  const awardedPoints =
-    correct && pngWinRate > 0 && pngWinRate < 1
-      ? mode.score({
-          correct,
-          answer: encoding.answer,
-          // 🔒 **出題時点の難易度**を使う（prd/03 §7）。問題データが再生成されても
-          // 同じ出題に対する得点が再現できるようにする
-          difficulty: served.difficultyAtServe,
-          pngWinRate,
-          hintUsed,
-        })
-      : // プールが片方に寄りきっていると -log2(0) が発散する。
-        // その条件は出題対象から外してあるが、保険として 0 点にする（例外にはしない）
-        0
   const nextIndex = row.currentIndex + 1
   const streak = correct ? row.streak + 1 : 0
 
@@ -396,8 +381,42 @@ export async function submitAnswer(
    * すべてのリクエストが「未回答」を読んで通り、`score` と `correct_count` が二重に積まれる。
    * **`answered_at IS NULL` を条件にした UPDATE で 1 件更新できた者だけ**が
    * セッション集計に進む。回答行とセッション行は同じトランザクションで確定させる。
+   *
+   * 🔒 **ヒントの確認と得点の確定も同じトランザクションで直列化する**（OCL-FC970B81）。
+   * 行ロックを取ってから `hint_used_at` を読み直す——ロックの前に読んだ値で採点すると、
+   * その後に commit された `/hint` の減点をすり抜けて満額が保存され、
+   * 「ヒントを見ながら 50% 減点を回避する」並行送信が成立してしまう（prd/06 §7.3）。
    */
   const accepted = await database.transaction(async (tx) => {
+    const lockedRows = await tx
+      .select({
+        answeredAt: sessionQuestion.answeredAt,
+        hintUsedAt: sessionQuestion.hintUsedAt,
+      })
+      .from(sessionQuestion)
+      .where(
+        and(
+          eq(sessionQuestion.sessionId, row.id),
+          eq(sessionQuestion.questionIndex, row.currentIndex),
+        ),
+      )
+      .limit(1)
+      // ⚠ ロック読み（`FOR UPDATE`）は**最新の commit 済み**を読む。ここが直列化点で、
+      // 並行の `/hint` はこのトランザクションが終わるまで待たされる（先勝ちが決まる）
+      .for('update')
+    const locked = lockedRows[0]
+    if (!locked) return null
+
+    const outcome = settleAnswer(mode, locked, {
+      correct,
+      answer: encoding.answer,
+      // 🔒 **出題時点の難易度**を使う（prd/03 §7）。問題データが再生成されても
+      // 同じ出題に対する得点が再現できるようにする
+      difficulty: served.difficultyAtServe,
+      pngWinRate,
+    })
+    if (outcome.status === 'already-answered') return null
+
     const [result] = await tx
       .update(sessionQuestion)
       .set({
@@ -405,7 +424,7 @@ export async function submitAnswer(
         answer: chosen,
         isCorrect: correct,
         elapsedMs,
-        awardedPoints,
+        awardedPoints: outcome.awardedPoints,
       })
       .where(
         and(
@@ -415,7 +434,7 @@ export async function submitAnswer(
         ),
       )
 
-    if (result.affectedRows !== 1) return false
+    if (result.affectedRows !== 1) return null
 
     await tx
       .update(session)
@@ -424,14 +443,14 @@ export async function submitAnswer(
         correctCount: sql`${session.correctCount} + ${correct ? 1 : 0}`,
         streak,
         maxStreak: sql`GREATEST(${session.maxStreak}, ${streak})`,
-        score: sql`${session.score} + ${awardedPoints}`,
+        score: sql`${session.score} + ${outcome.awardedPoints}`,
         ...(nextIndex >= row.questionCount
           ? { status: 'finished' as const, finishedAt: new Date() }
           : {}),
       })
       .where(eq(session.id, row.id))
 
-    return true
+    return outcome
   })
 
   if (!accepted) {
@@ -467,8 +486,8 @@ export async function submitAnswer(
     result: await discloseResult(row, questionId, encoding, {
       chosen,
       correct,
-      awardedPoints,
-      hintUsed,
+      awardedPoints: accepted.awardedPoints,
+      hintUsed: accepted.hintUsed,
       hasNext: nextIndex < row.questionCount,
     }),
   }
