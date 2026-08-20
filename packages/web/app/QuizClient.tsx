@@ -884,7 +884,7 @@ function ResultPanel({
       {/* データの面は lg で広げる。読み物は 720px のまま（prd/01 §7.1） */}
       <Narrow wide>
         <div className="flex flex-col gap-4">
-          <VerificationPanel result={result} />
+          <VerificationPanel result={result} width={width} height={height} onZoom={onZoom} />
           <ProfileResultsTable results={result.profileResults} />
         </div>
       </Narrow>
@@ -926,7 +926,17 @@ function ResultPanel({
  * - ⚠ **絵と数値は厳密には一致しない。** 絵は連続階調（ΔE00 上限 5）、数値は閾値 2 の二値。
  *   意図した不一致（prd/04 §4.1）。
  */
-function VerificationPanel({ result }: { result: AnswerResult }) {
+function VerificationPanel({
+  result,
+  width,
+  height,
+  onZoom,
+}: {
+  result: AnswerResult
+  width: number
+  height: number
+  onZoom: (request: ZoomRequest) => void
+}) {
   const [metric, setMetric] = useState<'de00' | 'ssim'>('de00')
   const selected = result.profileResults.find((profile) => profile.isSelected)
   const answered = result.verification.find(
@@ -940,6 +950,23 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
   if (!current) return null
 
   const others = result.verification.filter((view) => view !== answered)
+
+  // 🔒 2 枚を 1 つのダイアログに渡す。ΔE00 と 1−SSIM は**別の場所**を指すので、
+  // 同じ位置で切り替えられないと「どこが違うか」が読み取れない（prd/04 §4.1）
+  const de00Source: ZoomSource = {
+    label: 'ΔE00（色の差）',
+    url: current.de00Url,
+    alt: 'ΔE00 の劣化オーバーレイ',
+  }
+  const ssimSource: ZoomSource = {
+    label: 'SSIM（構造の差）',
+    url: current.ssimUrl,
+    alt: '1 − SSIM の劣化オーバーレイ',
+  }
+  const overlaySources: ZoomSource[] = [de00Source, ssimSource]
+  const overlayIndex = metric === 'de00' ? 0 : 1
+  const shownOverlay = metric === 'de00' ? de00Source : ssimSource
+  const openOverlayZoom = () => onZoom({ sources: overlaySources, index: overlayIndex })
 
   return (
     <section className="flex flex-col gap-2 rounded border border-line p-4">
@@ -967,11 +994,21 @@ function VerificationPanel({ result }: { result: AnswerResult }) {
         </span>
       </div>
 
-      <img
-        src={metric === 'de00' ? current.de00Url : current.ssimUrl}
-        alt={`${metric === 'de00' ? 'ΔE00' : 'SSIM'} の劣化オーバーレイ`}
-        className="rounded border border-line"
-      />
+      {/* 🔑 マップの細部（輪郭の内と外）は縮小表示では潰れる。全体はここで、細部はダイアログで
+          （出題画像・PNG / JPEG 比較と同じ流儀。prd/01 §7.3） */}
+      <div className="overflow-hidden rounded border border-line">
+        <ZoomableImage
+          url={shownOverlay.url}
+          alt={shownOverlay.alt}
+          width={width}
+          height={height}
+          onOpen={openOverlayZoom}
+        />
+      </div>
+
+      <div className="flex justify-end">
+        <ZoomHint label="拡大して 2 つの指標を同じ位置で切り替える" onOpen={openOverlayZoom} />
+      </div>
 
       <p className="text-ink-muted text-xs">
         {metric === 'de00' ? (
