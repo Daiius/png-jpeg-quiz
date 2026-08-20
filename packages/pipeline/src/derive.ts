@@ -177,7 +177,7 @@ const BLACK: Rgb = [0, 0, 0]
 const WHITE: Rgb = [255, 255, 255]
 
 /** Rec.601 の整数近似による輝度（決定的。浮動小数の係数を持ち回らない） */
-function luma(r: number, g: number, b: number): number {
+export function rec601Luma(r: number, g: number, b: number): number {
   return (r * 299 + g * 587 + b * 114) / 1000
 }
 
@@ -195,7 +195,9 @@ export function duotone(image: RawImage, ink: Rgb, paper: Rgb, threshold = 128):
   for (let i = 0; i < pixels; i++) {
     const index = i * channels
     const source =
-      luma(data[index] ?? 0, data[index + 1] ?? 0, data[index + 2] ?? 0) < threshold ? ink : paper
+      rec601Luma(data[index] ?? 0, data[index + 1] ?? 0, data[index + 2] ?? 0) < threshold
+        ? ink
+        : paper
     out[i * 3] = source[0]
     out[i * 3 + 1] = source[1]
     out[i * 3 + 2] = source[2]
@@ -229,7 +231,7 @@ export function inkColor(image: RawImage, threshold = 128): Rgb {
     const r = data[index] ?? 0
     const g = data[index + 1] ?? 0
     const b = data[index + 2] ?? 0
-    if (luma(r, g, b) >= threshold) continue
+    if (rec601Luma(r, g, b) >= threshold) continue
     reds.push(r)
     greens.push(g)
     blues.push(b)

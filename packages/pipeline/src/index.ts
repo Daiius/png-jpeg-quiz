@@ -5,7 +5,7 @@
  */
 
 export { type BuildOptions, type BuildSummary, build } from './build.ts'
-export { binarize, duotone, inkColor, quantize, type Rgb } from './derive.ts'
+export { binarize, duotone, inkColor, quantize, type Rgb, rec601Luma } from './derive.ts'
 export { encodeDisplay, encodeForProfile, encodeJpeg, encodePng, toolVersions } from './encode.ts'
 export { displayObjectKey, reserveEncodedKey } from './keys.ts'
 export { countColors, flatRatio, type RawImage } from './metrics.ts'
